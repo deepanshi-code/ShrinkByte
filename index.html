@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShrinkByte — Lossless File Compression & Decompression (Huffman Coding)</title>
+  <meta name="description" content="ShrinkByte: Lossless file compression and decompression using Huffman Coding. 100% client-side, zero data retention, and instant local processing.">
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Ambient Glow Effects -->
+  <div class="ambient-glow glow-top-left"></div>
+  <div class="ambient-glow glow-top-right"></div>
+  <div class="ambient-glow glow-bottom-center"></div>
+
+  <!-- Header / Navigation -->
+  <header class="app-header">
+    <div class="container header-content">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 7V4h16v3M9 20h6M12 4v16M8 12l4-4 4 4M8 16l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">Shrink<span class="gradient-text">Byte</span></div>
+          <div class="brand-tag">Lossless Huffman Engine</div>
+        </div>
+      </div>
+
+      <div class="header-badges">
+        <span class="badge badge-accent">
+          <span class="pulse-dot"></span>
+          DSCPP-III-2026-T220
+        </span>
+        <span class="badge badge-privacy">
+          <svg class="badge-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clip-rule="evenodd"/>
+          </svg>
+          100% Client-Side Privacy
+        </span>
+      </div>
+
+      <div class="header-actions">
+        <button id="btnArchitectureModal" class="btn-ghost" title="View System Architecture">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+          </svg>
+          Architecture
+        </button>
+        <button id="btnTeamModal" class="btn-ghost" title="View Project Team">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/>
+          </svg>
+          Team Info
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    <div class="container">
+
+      <!-- Hero Section -->
+      <section class="hero-section text-center">
+        <h1 class="hero-title">Lossless File <span class="gradient-text">Compression</span> & <span class="gradient-text-alt">Decompression</span></h1>
+        <p class="hero-subtitle">
+          High-performance byte-level compression using optimal Huffman binary trees.
+          Zero server retention — processed purely within your browser memory.
+        </p>
+
+        <!-- Quick Sample Buttons -->
+        <div class="quick-samples">
+          <span class="quick-samples-label">Quick Test Files:</span>
+          <button class="sample-chip" data-sample="example_code.c">
+            <span class="chip-ext">.c</span> Code File
+          </button>
+          <button class="sample-chip" data-sample="project_data.csv">
+            <span class="chip-ext">.csv</span> Dataset
+          </button>
+          <button class="sample-chip" data-sample="proposal_text.txt">
+            <span class="chip-ext">.txt</span> Text File
+          </button>
+          <button class="sample-chip" data-sample="archive_demo.shrink">
+            <span class="chip-ext">.shrink</span> ShrinkByte Archive
+          </button>
+          <button class="sample-chip" data-sample="ambiguous_data.bin">
+            <span class="chip-ext">.bin</span> Binary File
+          </button>
+        </div>
+      </section>
+
+      <!-- App Card / Workspace -->
+      <section class="workspace-card">
+
+        <!-- STEP 1: Upload / Drop Zone -->
+        <div id="dropZone" class="drop-zone">
+          <input type="file" id="fileInput" class="file-input-hidden" accept=".shrink,.txt,.csv,.c,.cpp,.bin,.dat,.json,.md,.log">
+          
+          <div class="drop-zone-icon-wrapper">
+            <div class="drop-zone-icon-glow"></div>
+            <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+
+          <h2 class="drop-zone-title">Drag & Drop your file here</h2>
+          <p class="drop-zone-sub">or <button type="button" id="btnBrowse" class="link-btn">browse your computer</button></p>
+          
+          <div class="format-tags">
+            <span class="format-tag">.shrink</span>
+            <span class="format-tag">.txt</span>
+            <span class="format-tag">.csv</span>
+            <span class="format-tag">.c</span>
+            <span class="format-tag">.cpp</span>
+            <span class="format-tag">.bin</span>
+            <span class="format-tag-info">Max size 1 GB • Only .shrink files can be decompressed</span>
+          </div>
+        </div>
+
+        <!-- Selected File Banner (Hidden until file selected) -->
+        <div id="fileDetailsCard" class="file-details-card hidden">
+          <div class="file-details-left">
+            <div id="fileTypeIcon" class="file-type-badge">TXT</div>
+            <div class="file-meta">
+              <div id="fileName" class="file-name">example_code.c</div>
+              <div class="file-meta-sub">
+                <span id="fileSize">14.8 KB</span>
+                <span class="meta-separator">•</span>
+                <span id="fileMime">Source File</span>
+                <span class="meta-separator">•</span>
+                <span id="detectionBadge" class="detection-pill">Auto-Detected</span>
+              </div>
+            </div>
+          </div>
+          <div class="file-details-right">
+            <button id="btnRemoveFile" class="btn-icon" title="Remove File">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- LIVE BYTE-FREQUENCY HISTOGRAM (Real data read from the loaded file) -->
+        <div id="byteHistogramCard" class="byte-histogram-card hidden">
+          <div class="byte-histogram-header">
+            <div class="byte-histogram-title-wrap">
+              <svg class="byte-histogram-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="20" x2="12" y2="10"></line>
+                <line x1="18" y1="20" x2="18" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="16"></line>
+              </svg>
+              <div>
+                <div class="byte-histogram-title">Byte Frequency Distribution</div>
+                <div class="byte-histogram-sub" id="byteHistogramSub">Top bytes by occurrence, computed from the actual file contents</div>
+              </div>
+            </div>
+            <button type="button" id="btnToggleHistogram" class="terminal-toggle">Collapse</button>
+          </div>
+          <div id="byteHistogramBars" class="byte-histogram-bars"></div>
+        </div>
+
+        <!-- Mode Indicator / Manual Switcher Bar (Always accessible) -->
+        <div id="modeSwitcherBar" class="mode-switcher-bar hidden">
+          <div class="mode-info">
+            <span class="mode-info-label">Active Mode:</span>
+            <span id="modeStatusText" class="mode-status-text">Compressing file</span>
+          </div>
+          <div class="mode-pill-toggle">
+            <button type="button" id="btnToggleCompress" class="mode-pill-btn active">
+              ⚡ Compress
+            </button>
+            <button type="button" id="btnToggleDecompress" class="mode-pill-btn">
+              🔓 Decompress
+            </button>
+          </div>
+        </div>
+
+        <!-- CTA Execute Button -->
+        <div id="ctaContainer" class="cta-container hidden">
+          <button id="btnExecuteAction" class="btn-primary-action">
+            <span class="btn-glow"></span>
+            <span class="btn-content">
+              <svg id="btnActionIcon" class="btn-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="4 14 10 14 10 20"></polyline>
+                <polyline points="20 10 14 10 14 4"></polyline>
+                <line x1="14" y1="10" x2="21" y2="3"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span id="btnActionLabel">Compress File</span>
+            </span>
+          </button>
+          <div class="cta-note">
+            <span>🔒 Secure client-side execution</span> • <span>No data transmitted</span>
+          </div>
+        </div>
+
+        <!-- PROGRESS SECTION (Dual Progress Bars: Uploading % & Processing %) -->
+        <div id="progressSection" class="progress-section hidden">
+
+          <!-- Phase 1: Uploading / Ingestion Progress -->
+          <div class="progress-block" id="uploadProgressBlock">
+            <div class="progress-header">
+              <div class="progress-title-wrap">
+                <div class="progress-step-number">1</div>
+                <div>
+                  <div class="progress-title">Uploading & Ingesting File into Local Memory</div>
+                  <div id="uploadStatusDesc" class="progress-desc">Streaming binary bytes into buffer...</div>
+                </div>
+              </div>
+              <div class="progress-percent-wrap">
+                <span id="uploadPercentText" class="progress-percent">0%</span>
+              </div>
+            </div>
+            
+            <div class="progress-track">
+              <div id="uploadProgressBar" class="progress-fill upload-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="progress-footer">
+              <span id="uploadBytesMetric">0 KB / 0 KB</span>
+              <span id="uploadSpeedMetric">0 MB/s</span>
+              <span id="uploadStateBadge" class="state-pill in-progress">Reading...</span>
+            </div>
+          </div>
+
+          <!-- Phase 2: Compressing or Decompressing Progress -->
+          <div class="progress-block" id="processProgressBlock">
+            <div class="progress-header">
+              <div class="progress-title-wrap">
+                <div class="progress-step-number" id="processStepNum">2</div>
+                <div>
+                  <div id="processMainTitle" class="progress-title">Huffman Coding Compression Pipeline</div>
+                  <div id="processSubTitle" class="progress-desc">Initializing Frequency Table...</div>
+                </div>
+              </div>
+              <div class="progress-percent-wrap">
+                <span id="processPercentText" class="progress-percent gradient-text">0%</span>
+              </div>
+            </div>
+
+            <div class="progress-track">
+              <div id="processProgressBar" class="progress-fill process-fill" style="width: 0%;"></div>
+            </div>
+
+            <!-- Pipeline Step Chips -->
+            <div class="pipeline-milestones">
+              <div class="milestone-chip" id="mileStep1">
+                <span class="milestone-dot"></span>
+                <span class="milestone-label" id="mileStep1Label">1. Frequency Analysis</span>
+              </div>
+              <div class="milestone-chip" id="mileStep2">
+                <span class="milestone-dot"></span>
+                <span class="milestone-label" id="mileStep2Label">2. Min-Heap & Tree</span>
+              </div>
+              <div class="milestone-chip" id="mileStep3">
+                <span class="milestone-dot"></span>
+                <span class="milestone-label" id="mileStep3Label">3. Code Generation</span>
+              </div>
+              <div class="milestone-chip" id="mileStep4">
+                <span class="milestone-dot"></span>
+                <span class="milestone-label" id="mileStep4Label">4. Bitstream Packing</span>
+              </div>
+            </div>
+
+            <!-- Terminal / Execution Log Box -->
+            <div class="terminal-log-wrapper">
+              <div class="terminal-header">
+                <div class="terminal-dots">
+                  <span class="terminal-dot red"></span>
+                  <span class="terminal-dot yellow"></span>
+                  <span class="terminal-dot green"></span>
+                </div>
+                <div class="terminal-title">ShrinkByte Execution Console (Byte-Level Stream)</div>
+                <button type="button" id="btnToggleTerminal" class="terminal-toggle">Collapse</button>
+              </div>
+              <div id="terminalConsole" class="terminal-console">
+                <div class="log-line"><span class="log-time">[00:00.00]</span> <span class="log-info">[INFO]</span> Engine ready. Awaiting file input...</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- RESULTS & DOWNLOAD SECTION -->
+        <div id="resultsSection" class="results-section hidden">
+          <div class="results-card">
+            
+            <div class="results-header">
+              <div class="success-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke-linecap="round" stroke-linejoin="round"></path>
+                  <polyline points="22 4 12 14.01 9 11.01" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                </svg>
+              </div>
+              <div class="results-header-text">
+                <h3 id="resultsTitle" class="results-title">Compression Completed Successfully!</h3>
+                <p id="resultsSubtitle" class="results-subtitle">Lossless verification confirmed: 100% byte fidelity preserved.</p>
+              </div>
+            </div>
+
+            <!-- Metric Cards Grid -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <div class="metric-label">Original File Size</div>
+                <div id="metricOriginalSize" class="metric-value">45.2 KB</div>
+                <div class="metric-sub" id="metricOriginalSub">Raw input bytes</div>
+              </div>
+
+              <div class="metric-card">
+                <div class="metric-label" id="metricProcessedLabel">Compressed Size</div>
+                <div id="metricProcessedSize" class="metric-value gradient-text">24.8 KB</div>
+                <div class="metric-sub" id="metricProcessedSub">Bitstream payload</div>
+              </div>
+
+              <div class="metric-card">
+                <div class="metric-label" id="metricRatioLabel">Space Reduction</div>
+                <div id="metricRatioValue" class="metric-value highlight-emerald">45.1%</div>
+                <div class="metric-sub" id="metricRatioSub">20.4 KB saved</div>
+              </div>
+
+              <div class="metric-card">
+                <div class="metric-label">Execution Time</div>
+                <div id="metricTimeValue" class="metric-value">128 ms</div>
+                <div class="metric-sub">Client-side RAM</div>
+              </div>
+            </div>
+
+            <!-- Download CTA Action Area -->
+            <div class="download-box">
+              <div class="download-info">
+                <div class="download-file-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="12" y1="18" x2="12" y2="12"></line>
+                    <line x1="9" y1="15" x2="12" y2="18"></line>
+                    <line x1="15" y1="15" x2="12" y2="18"></line>
+                  </svg>
+                </div>
+                <div class="download-meta">
+                  <div class="download-name-label">Ready for local download:</div>
+                  <div id="downloadFileName" class="download-file-name">example_code.shrink</div>
+                </div>
+              </div>
+
+              <div class="download-actions">
+                <button id="btnDownloadFile" class="btn-download">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  Download File
+                </button>
+                <button id="btnResetAll" class="btn-ghost">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <polyline points="1 4 1 10 7 10"></polyline>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                  </svg>
+                  Process Another File
+                </button>
+              </div>
+            </div>
+
+            <!-- Zero Retention Guarantee Banner -->
+            <div class="privacy-guarantee">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+                <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span><strong>Privacy Protected:</strong> Your file was processed locally in temporary RAM. No file contents or metadata were stored or sent to any server.</span>
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+
+      <!-- SYSTEM ARCHITECTURE DIAGRAM (From Proposal Report Diagram 1) -->
+      <section class="architecture-section">
+        <div class="section-header">
+          <h2 class="section-title">ShrinkByte System Architecture</h2>
+          <p class="section-desc">Based on DSCPP-III-2026-T220 High-Level Pipeline Diagram</p>
+        </div>
+
+        <div class="pipeline-container">
+          <div class="pipeline-flow">
+            <div class="pipeline-node" id="archInputFile">
+              <div class="node-tag">Source</div>
+              <div class="node-title">Input File</div>
+              <div class="node-desc">.txt, .csv, .c, .cpp</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archFileManager">
+              <div class="node-tag">C Module</div>
+              <div class="node-title">FileManager</div>
+              <div class="node-desc">Byte Stream Ingestion</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archFreqTable">
+              <div class="node-tag">Data Structure</div>
+              <div class="node-title">Frequency Table</div>
+              <div class="node-desc">0–255 Byte Histogram</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archMinHeap">
+              <div class="node-tag">Heap</div>
+              <div class="node-title">Minimum Heap</div>
+              <div class="node-desc">Priority Node Queue</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archHuffmanTree">
+              <div class="node-tag">Binary Tree</div>
+              <div class="node-title">Huffman Tree</div>
+              <div class="node-desc">Variable-length Codes</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archEncoder">
+              <div class="node-tag">Bitstream</div>
+              <div class="node-title">HuffmanEncoder</div>
+              <div class="node-desc">Prefix Bit Encoding</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archMetadata">
+              <div class="node-tag">Header</div>
+              <div class="node-title">MetadataManager</div>
+              <div class="node-desc">Serialization & Padding</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+
+            <div class="pipeline-node" id="archCompressed">
+              <div class="node-tag">Output</div>
+              <div class="node-title">Compressed File</div>
+              <div class="node-desc">.shrink Binary Format</div>
+            </div>
+          </div>
+
+          <div class="pipeline-reverse-indicator">
+            <span>⇄ Decompression Flow: .shrink File → HuffmanDecoder → Decompressor → Original File</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- DEVELOPER HOOK CALLOUT (For Manual C/C++ Huffman Integration) -->
+      <section class="backend-hook-banner">
+        <div class="hook-banner-content">
+          <div class="hook-banner-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16.5 9.4 7.55 4.24a1.78 1.78 0 0 0-2.5 1.55v12.42a1.78 1.78 0 0 0 2.5 1.55L16.5 14.6a1.78 1.78 0 0 0 0-3.2z"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 class="hook-banner-title">Developer Integration Hook Ready</h3>
+            <p class="hook-banner-desc">
+              Your frontend is pre-wired with <code>processFileWithBackend(file, action)</code> in <code>app.js</code>.
+              When your C/C++ Huffman engine or WebAssembly module is compiled, simply plug its binary or API call directly into the hook.
+            </p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- TEAM MODAL -->
+  <div id="teamModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Project & Team Information</h3>
+        <button id="btnCloseTeamModal" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="project-info-strip">
+          <div>
+            <span class="info-label">Project Title:</span>
+            <div class="info-val">ShrinkByte: Lossless File Compression and Decompression Using Huffman Coding</div>
+          </div>
+          <div class="project-info-grid">
+            <div>
+              <span class="info-label">Team Name:</span>
+              <div class="info-val">ShrinkByte</div>
+            </div>
+            <div>
+              <span class="info-label">Team #:</span>
+              <div class="info-val">DSCPP-III-2026-T220</div>
+            </div>
+          </div>
+        </div>
+
+        <h4 class="team-subheading">Student / Team Members</h4>
+        <div class="team-grid">
+          <div class="team-member-card team-lead">
+            <div class="member-role-badge">Team Lead</div>
+            <div class="member-name">Agarwal, Deepanshi</div>
+            <div class="member-id">ID: 2510379831</div>
+            <div class="member-email">2510379831@geu.ac.in</div>
+          </div>
+
+          <div class="team-member-card">
+            <div class="member-role-badge">Team Member</div>
+            <div class="member-name">Grover, Avika</div>
+            <div class="member-id">ID: 2510370032</div>
+            <div class="member-email">2510370032@geu.ac.in</div>
+          </div>
+
+          <div class="team-member-card">
+            <div class="member-role-badge">Team Member</div>
+            <div class="member-name">Bhardwaj, Darsh</div>
+            <div class="member-id">ID: 2510370443</div>
+            <div class="member-email">2510370443@geu.ac.in</div>
+          </div>
+
+          <div class="team-member-card">
+            <div class="member-role-badge">Team Member</div>
+            <div class="member-name">Saini, Aayushe</div>
+            <div class="member-id">ID: 2510378143</div>
+            <div class="member-email">2510378143@geu.ac.in</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE MODAL -->
+  <div id="archModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <h3 class="modal-title">ShrinkByte High-Level System Architecture</h3>
+        <button id="btnCloseArchModal" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="arch-modal-lead">
+          The architecture executes byte-level frequency analysis, binary min-heap construction, optimal prefix code tree generation, and metadata bit packing.
+        </p>
+        <div class="arch-spec-list">
+          <div class="spec-row">
+            <strong>1. Input File & FileManager:</strong> Reads raw byte streams from <code>.txt</code>, <code>.csv</code>, <code>.c</code>, <code>.cpp</code> up to 1 GB.
+          </div>
+          <div class="spec-row">
+            <strong>2. Frequency Table:</strong> Compiles occurrence counts of each 8-bit character (0 to 255).
+          </div>
+          <div class="spec-row">
+            <strong>3. Minimum Heap:</strong> Efficient $O(N \log N)$ priority queue that repeatedly extracts the two smallest nodes.
+          </div>
+          <div class="spec-row">
+            <strong>4. Huffman Tree:</strong> Merges nodes into a binary tree where frequent characters occupy shorter tree depths.
+          </div>
+          <div class="spec-row">
+            <strong>5. HuffmanEncoder & MetadataManager:</strong> Translates bytes to bit-strings, packs 8 bits into bytes, and prepends tree serialization & padding length.
+          </div>
+          <div class="spec-row">
+            <strong>6. HuffmanDecoder & Decompressor:</strong> Reads the compressed bitstream, traverses the tree to decode original symbols, and recreates the source file with 100% losslessness.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastNotification" class="toast hidden">
+    <div class="toast-icon">✓</div>
+    <div id="toastMessage" class="toast-message">Notification message</div>
+  </div>
+
+  <footer class="app-footer">
+    <div class="container footer-content">
+      <div>ShrinkByte © 2026 • DSCPP-III-2026-T220 Project</div>
+      <div class="footer-note">Client-Side File Management & UI/UX</div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
