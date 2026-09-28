@@ -1,0 +1,16 @@
+id,metric_name,symbol,frequency,huffman_code,bit_length
+1,space,' ',1452,00,2
+2,letter_e,'e',984,101,3
+3,letter_t,'t',740,110,3
+4,letter_a,'a',689,1110,4
+5,letter_o,'o',612,1111,4
+6,letter_i,'i',578,0100,4
+7,letter_n,'n',531,0101,4
+8,newline,'\n',312,01100,5
+9,letter_s,'s',489,01101,5
+10,letter_h,'h',390,01110,5
+11,letter_r,'r',375,01111,5
+12,letter_d,'d',310,10000,5
+13,letter_l,'l',290,10001,5
+14,letter_c,'c',245,100100,6
+15,letter_u,'u',210,100101,6
