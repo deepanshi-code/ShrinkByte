@@ -21,5 +21,5 @@ class MinHeap{
 
     int getSize();
 };
-
+void buildMinHeap(MinHeap &heap,int frequency[256]);
 #endif
