@@ -1,0 +1,9 @@
+# Compressed archives and binary data: never convert line endings
+*.sb      binary
+*.shrink  binary
+*.bin     binary
+*.pdf     binary
+
+# Sample files are test inputs: keep their exact bytes on every OS so sizes and
+# archives match what the C++ CLI and the browser produce
+sample_files/** -text
