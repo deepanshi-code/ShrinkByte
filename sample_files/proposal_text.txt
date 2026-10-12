@@ -1,0 +1,10 @@
+ShrinkByte: Lossless File Compression and Decompression Using Huffman Coding
+Team: DSCPP-III-2026-T220
+Team Lead: Agarwal, Deepanshi (2510379831)
+Team Members: Grover, Avika (2510370032), Bhardwaj, Darsh (2510370443), Saini, Aayushe (2510378143)
+
+Digital files occupy significant storage space and require bandwidth during transfer.
+Since too many files use and include repetitive information, this information can be represented more effectively without changing the real content.
+ShrinkByte creates a file compression and decompression system without any losses by using Huffman coding algorithm.
+Data structures like frequency tables, minimum heaps, and binary trees are employed to reduce the size of files without any loss in original content.
+All operations are verified at byte level with 100% data fidelity.
