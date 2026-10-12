@@ -16,9 +16,9 @@
 <body>
 
   <!-- Ambient Glow Effects -->
-  <div class="ambient-glow glow-top-left"></div>
-  <div class="ambient-glow glow-top-right"></div>
-  <div class="ambient-glow glow-bottom-center"></div>
+  <div class="ambient-glow glow-top-left" aria-hidden="true"></div>
+  <div class="ambient-glow glow-top-right" aria-hidden="true"></div>
+  <div class="ambient-glow glow-bottom-center" aria-hidden="true"></div>
 
   <!-- Header / Navigation -->
   <header class="app-header">
@@ -89,8 +89,11 @@
           <button class="sample-chip" data-sample="proposal_text.txt">
             <span class="chip-ext">.txt</span> Text File
           </button>
-          <button class="sample-chip" data-sample="archive_demo.shrink">
+          <button class="sample-chip" data-sample="proposal_text.txt.shrink">
             <span class="chip-ext">.shrink</span> ShrinkByte Archive
+          </button>
+          <button class="sample-chip" data-sample="example_code.c.sb">
+            <span class="chip-ext">.sb</span> C++ CLI Archive
           </button>
           <button class="sample-chip" data-sample="ambiguous_data.bin">
             <span class="chip-ext">.bin</span> Binary File
@@ -103,7 +106,7 @@
 
         <!-- STEP 1: Upload / Drop Zone -->
         <div id="dropZone" class="drop-zone">
-          <input type="file" id="fileInput" class="file-input-hidden" accept=".shrink,.txt,.csv,.c,.cpp,.bin,.dat,.json,.md,.log">
+          <input type="file" id="fileInput" class="file-input-hidden" accept=".shrink,.sb,.txt,.csv,.c,.cpp,.bin,.dat,.json,.md,.log" aria-label="Choose a file to compress or decompress">
           
           <div class="drop-zone-icon-wrapper">
             <div class="drop-zone-icon-glow"></div>
@@ -117,12 +120,13 @@
           
           <div class="format-tags">
             <span class="format-tag">.shrink</span>
+            <span class="format-tag">.sb</span>
             <span class="format-tag">.txt</span>
             <span class="format-tag">.csv</span>
             <span class="format-tag">.c</span>
             <span class="format-tag">.cpp</span>
             <span class="format-tag">.bin</span>
-            <span class="format-tag-info">Max size 1 GB • Only .shrink files can be decompressed</span>
+            <span class="format-tag-info">Max size 1 GB • Only .shrink or .sb archives can be decompressed</span>
           </div>
         </div>
 
@@ -142,7 +146,7 @@
             </div>
           </div>
           <div class="file-details-right">
-            <button id="btnRemoveFile" class="btn-icon" title="Remove File">
+            <button type="button" id="btnRemoveFile" class="btn-icon" title="Remove file (cancels processing)" aria-label="Remove file">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -165,7 +169,7 @@
                 <div class="byte-histogram-sub" id="byteHistogramSub">Top bytes by occurrence, computed from the actual file contents</div>
               </div>
             </div>
-            <button type="button" id="btnToggleHistogram" class="terminal-toggle">Collapse</button>
+            <button type="button" id="btnToggleHistogram" class="terminal-toggle" aria-controls="byteHistogramBars" aria-expanded="true">Collapse</button>
           </div>
           <div id="byteHistogramBars" class="byte-histogram-bars"></div>
         </div>
@@ -177,10 +181,10 @@
             <span id="modeStatusText" class="mode-status-text">Compressing file</span>
           </div>
           <div class="mode-pill-toggle">
-            <button type="button" id="btnToggleCompress" class="mode-pill-btn active">
+            <button type="button" id="btnToggleCompress" class="mode-pill-btn active" aria-pressed="true">
               ⚡ Compress
             </button>
-            <button type="button" id="btnToggleDecompress" class="mode-pill-btn">
+            <button type="button" id="btnToggleDecompress" class="mode-pill-btn" aria-pressed="false">
               🔓 Decompress
             </button>
           </div>
@@ -188,7 +192,7 @@
 
         <!-- CTA Execute Button -->
         <div id="ctaContainer" class="cta-container hidden">
-          <button id="btnExecuteAction" class="btn-primary-action">
+          <button type="button" id="btnExecuteAction" class="btn-primary-action">
             <span class="btn-glow"></span>
             <span class="btn-content">
               <svg id="btnActionIcon" class="btn-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -214,8 +218,8 @@
               <div class="progress-title-wrap">
                 <div class="progress-step-number">1</div>
                 <div>
-                  <div class="progress-title">Uploading & Ingesting File into Local Memory</div>
-                  <div id="uploadStatusDesc" class="progress-desc">Streaming binary bytes into buffer...</div>
+                  <div id="uploadTitle" class="progress-title">Reading File & Counting Byte Frequencies</div>
+                  <div id="uploadStatusDesc" class="progress-desc">Reading the file in chunks...</div>
                 </div>
               </div>
               <div class="progress-percent-wrap">
@@ -228,9 +232,9 @@
             </div>
 
             <div class="progress-footer">
-              <span id="uploadBytesMetric">0 KB / 0 KB</span>
-              <span id="uploadSpeedMetric">0 MB/s</span>
-              <span id="uploadStateBadge" class="state-pill in-progress">Reading...</span>
+              <span id="uploadBytesMetric">0 Bytes</span>
+              <span id="uploadSpeedMetric">—</span>
+              <span id="uploadStateBadge" class="state-pill in-progress">Waiting...</span>
             </div>
           </div>
 
@@ -282,9 +286,9 @@
                   <span class="terminal-dot green"></span>
                 </div>
                 <div class="terminal-title">ShrinkByte Execution Console (Byte-Level Stream)</div>
-                <button type="button" id="btnToggleTerminal" class="terminal-toggle">Collapse</button>
+                <button type="button" id="btnToggleTerminal" class="terminal-toggle" aria-controls="terminalConsole" aria-expanded="true">Collapse</button>
               </div>
-              <div id="terminalConsole" class="terminal-console">
+              <div id="terminalConsole" class="terminal-console" role="region" aria-label="Execution console" tabindex="0">
                 <div class="log-line"><span class="log-time">[00:00.00]</span> <span class="log-info">[INFO]</span> Engine ready. Awaiting file input...</div>
               </div>
             </div>
@@ -312,7 +316,7 @@
             <!-- Metric Cards Grid -->
             <div class="metrics-grid">
               <div class="metric-card">
-                <div class="metric-label">Original File Size</div>
+                <div class="metric-label" id="metricOriginalLabel">Original File Size</div>
                 <div id="metricOriginalSize" class="metric-value">45.2 KB</div>
                 <div class="metric-sub" id="metricOriginalSub">Raw input bytes</div>
               </div>
@@ -332,7 +336,7 @@
               <div class="metric-card">
                 <div class="metric-label">Execution Time</div>
                 <div id="metricTimeValue" class="metric-value">128 ms</div>
-                <div class="metric-sub">Client-side RAM</div>
+                <div class="metric-sub">In your browser</div>
               </div>
             </div>
 
@@ -355,7 +359,7 @@
               </div>
 
               <div class="download-actions">
-                <button id="btnDownloadFile" class="btn-download">
+                <button type="button" id="btnDownloadFile" class="btn-download">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -363,7 +367,7 @@
                   </svg>
                   Download File
                 </button>
-                <button id="btnResetAll" class="btn-ghost">
+                <button type="button" id="btnResetAll" class="btn-ghost">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                     <polyline points="1 4 1 10 7 10"></polyline>
                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
@@ -393,7 +397,7 @@
           <p class="section-desc">Based on DSCPP-III-2026-T220 High-Level Pipeline Diagram</p>
         </div>
 
-        <div class="pipeline-container">
+        <div class="pipeline-container" role="region" aria-label="Architecture pipeline (scrolls sideways)" tabindex="0">
           <div class="pipeline-flow">
             <div class="pipeline-node" id="archInputFile">
               <div class="node-tag">Source</div>
@@ -447,12 +451,12 @@
             <div class="pipeline-node" id="archCompressed">
               <div class="node-tag">Output</div>
               <div class="node-title">Compressed File</div>
-              <div class="node-desc">.shrink Binary Format</div>
+              <div class="node-desc">SB01 .shrink / .sb Format</div>
             </div>
           </div>
 
           <div class="pipeline-reverse-indicator">
-            <span>⇄ Decompression Flow: .shrink File → HuffmanDecoder → Decompressor → Original File</span>
+            <span>⇄ Decompression Flow: .shrink / .sb File → HuffmanDecoder → Decompressor → Original File</span>
           </div>
         </div>
       </section>
@@ -466,10 +470,10 @@
             </svg>
           </div>
           <div>
-            <h3 class="hook-banner-title">Developer Integration Hook Ready</h3>
+            <h3 class="hook-banner-title">Same Format as the C++ Engine</h3>
             <p class="hook-banner-desc">
-              Your frontend is pre-wired with <code>processFileWithBackend(file, action)</code> in <code>app.js</code>.
-              When your C/C++ Huffman engine or WebAssembly module is compiled, simply plug its binary or API call directly into the hook.
+              <code>sb01.js</code> is a JavaScript port of the C++ <code>HuffmanEncoder</code>. It builds the same tree and writes the same SB01 archive,
+              so a <code>.shrink</code> made here decompresses with the C++ CLI, and a <code>.sb</code> made by the CLI decompresses here.
             </p>
           </div>
         </div>
@@ -479,11 +483,11 @@
   </main>
 
   <!-- TEAM MODAL -->
-  <div id="teamModal" class="modal-backdrop hidden">
+  <dialog id="teamModal" class="modal-dialog" aria-labelledby="teamModalTitle">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title">Project & Team Information</h3>
-        <button id="btnCloseTeamModal" class="btn-icon">✕</button>
+        <h3 class="modal-title" id="teamModalTitle">Project & Team Information</h3>
+        <button type="button" id="btnCloseTeamModal" class="btn-icon" aria-label="Close team information">✕</button>
       </div>
       <div class="modal-body">
         <div class="project-info-strip">
@@ -535,14 +539,14 @@
         </div>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ARCHITECTURE MODAL -->
-  <div id="archModal" class="modal-backdrop hidden">
+  <dialog id="archModal" class="modal-dialog" aria-labelledby="archModalTitle">
     <div class="modal-card modal-large">
       <div class="modal-header">
-        <h3 class="modal-title">ShrinkByte High-Level System Architecture</h3>
-        <button id="btnCloseArchModal" class="btn-icon">✕</button>
+        <h3 class="modal-title" id="archModalTitle">ShrinkByte High-Level System Architecture</h3>
+        <button type="button" id="btnCloseArchModal" class="btn-icon" aria-label="Close architecture details">✕</button>
       </div>
       <div class="modal-body">
         <p class="arch-modal-lead">
@@ -556,13 +560,13 @@
             <strong>2. Frequency Table:</strong> Compiles occurrence counts of each 8-bit character (0 to 255).
           </div>
           <div class="spec-row">
-            <strong>3. Minimum Heap:</strong> Efficient $O(N \log N)$ priority queue that repeatedly extracts the two smallest nodes.
+            <strong>3. Minimum Heap:</strong> Priority queue that repeatedly extracts the two smallest nodes; building the tree takes O(n log n) for n distinct bytes.
           </div>
           <div class="spec-row">
             <strong>4. Huffman Tree:</strong> Merges nodes into a binary tree where frequent characters occupy shorter tree depths.
           </div>
           <div class="spec-row">
-            <strong>5. HuffmanEncoder & MetadataManager:</strong> Translates bytes to bit-strings, packs 8 bits into bytes, and prepends tree serialization & padding length.
+            <strong>5. HuffmanEncoder & MetadataManager:</strong> Translates bytes to bit-strings, packs 8 bits into bytes, and prepends the SB01 header: magic, original size and the byte-frequency table the decoder rebuilds the tree from.
           </div>
           <div class="spec-row">
             <strong>6. HuffmanDecoder & Decompressor:</strong> Reads the compressed bitstream, traverses the tree to decode original symbols, and recreates the source file with 100% losslessness.
@@ -570,13 +574,14 @@
         </div>
       </div>
     </div>
-  </div>
+  </dialog>
 
-  <!-- Toast Notification -->
-  <div id="toastNotification" class="toast hidden">
-    <div class="toast-icon">✓</div>
+  <!-- Toast Notification (visual); liveAnnouncer reads the same text to screen readers -->
+  <div id="toastNotification" class="toast hidden" aria-hidden="true">
+    <div id="toastIcon" class="toast-icon">✓</div>
     <div id="toastMessage" class="toast-message">Notification message</div>
   </div>
+  <div id="liveAnnouncer" class="sr-only" role="status" aria-live="polite"></div>
 
   <footer class="app-footer">
     <div class="container footer-content">
@@ -585,6 +590,7 @@
     </div>
   </footer>
 
+  <script src="sb01.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

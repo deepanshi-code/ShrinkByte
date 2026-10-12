@@ -5,7 +5,9 @@
  * Team Members: Grover Avika, Bhardwaj Darsh, Saini Aayushe
  *
  * Frontend UI/UX, File Management, Smart Extension Detection,
- * Dual Progressive Progress Bars, and Zero-Retention Local Download.
+ * Dual Progress Bars, and Zero-Retention Local Download.
+ * Compression itself runs in sb01.js (a port of the C++ HuffmanEncoder),
+ * inside a Web Worker so large files do not freeze the page.
  */
 
 // Global State
@@ -17,19 +19,26 @@ const appState = {
   stats: {
     originalSize: 0,
     processedSize: 0,
-    ratio: 0,
-    executionTimeMs: 0
+    executionTimeMs: 0,
+    verified: false
   },
   isProcessing: false
 };
 
 // Max file size accepted for ingestion (matches the "Max size 1 GB" label in the drop zone)
-const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = SB01.MAX_INPUT_BYTES;
 
-function isShrinkFile(file) {
+// Both extensions hold the same SB01 format: .shrink from this UI, .sb from the C++ CLI
+const ARCHIVE_EXTENSIONS = ['.shrink', '.sb'];
+
+function isArchiveFile(file) {
   if (!file || !file.name) return false;
-  return file.name.toLowerCase().endsWith('.shrink');
+  const name = file.name.toLowerCase();
+  return ARCHIVE_EXTENSIONS.some(ext => name.endsWith(ext));
 }
+
+// The job currently running, so it can be cancelled: { cancelled, cancel() }
+let activeRun = null;
 
 // DOM Elements
 const dropZone = document.getElementById('dropZone');
@@ -64,6 +73,7 @@ const btnActionIcon = document.getElementById('btnActionIcon');
 // Progress Elements
 const progressSection = document.getElementById('progressSection');
 const uploadProgressBlock = document.getElementById('uploadProgressBlock');
+const uploadTitle = document.getElementById('uploadTitle');
 const uploadProgressBar = document.getElementById('uploadProgressBar');
 const uploadPercentText = document.getElementById('uploadPercentText');
 const uploadStatusDesc = document.getElementById('uploadStatusDesc');
@@ -94,6 +104,7 @@ const btnToggleTerminal = document.getElementById('btnToggleTerminal');
 const resultsSection = document.getElementById('resultsSection');
 const resultsTitle = document.getElementById('resultsTitle');
 const resultsSubtitle = document.getElementById('resultsSubtitle');
+const metricOriginalLabel = document.getElementById('metricOriginalLabel');
 const metricOriginalSize = document.getElementById('metricOriginalSize');
 const metricOriginalSub = document.getElementById('metricOriginalSub');
 const metricProcessedLabel = document.getElementById('metricProcessedLabel');
@@ -107,7 +118,7 @@ const downloadFileName = document.getElementById('downloadFileName');
 const btnDownloadFile = document.getElementById('btnDownloadFile');
 const btnResetAll = document.getElementById('btnResetAll');
 
-// Modals
+// Modals (native <dialog>: focus trap, Escape to close and focus return come built in)
 const teamModal = document.getElementById('teamModal');
 const archModal = document.getElementById('archModal');
 const btnTeamModal = document.getElementById('btnTeamModal');
@@ -117,7 +128,9 @@ const btnCloseArchModal = document.getElementById('btnCloseArchModal');
 
 // Toast
 const toastNotification = document.getElementById('toastNotification');
+const toastIcon = document.getElementById('toastIcon');
 const toastMessage = document.getElementById('toastMessage');
+const liveAnnouncer = document.getElementById('liveAnnouncer');
 
 // Architecture Pipeline Nodes (for visual tracking)
 const archNodes = {
@@ -175,6 +188,7 @@ function setupUploadListeners() {
     if (file) handleIncomingFile(file);
   });
 
+  // Removing the file also cancels a job that is still running
   btnRemoveFile.addEventListener('click', () => {
     resetAll();
   });
@@ -192,23 +206,17 @@ function setupUploadListeners() {
   });
 
   btnToggleTerminal.addEventListener('click', () => {
-    if (terminalConsole.style.display === 'none') {
-      terminalConsole.style.display = 'block';
-      btnToggleTerminal.textContent = 'Collapse';
-    } else {
-      terminalConsole.style.display = 'none';
-      btnToggleTerminal.textContent = 'Expand';
-    }
+    const collapse = terminalConsole.style.display !== 'none';
+    terminalConsole.style.display = collapse ? 'none' : 'block';
+    btnToggleTerminal.textContent = collapse ? 'Expand' : 'Collapse';
+    btnToggleTerminal.setAttribute('aria-expanded', String(!collapse));
   });
 
   btnToggleHistogram.addEventListener('click', () => {
-    if (byteHistogramBars.style.display === 'none') {
-      byteHistogramBars.style.display = 'flex';
-      btnToggleHistogram.textContent = 'Collapse';
-    } else {
-      byteHistogramBars.style.display = 'none';
-      btnToggleHistogram.textContent = 'Expand';
-    }
+    const collapse = byteHistogramBars.style.display !== 'none';
+    byteHistogramBars.style.display = collapse ? 'none' : 'flex';
+    btnToggleHistogram.textContent = collapse ? 'Expand' : 'Collapse';
+    btnToggleHistogram.setAttribute('aria-expanded', String(!collapse));
   });
 }
 
@@ -228,7 +236,7 @@ function setupSampleChips() {
         showToast('Sample file "' + sampleFile + '" loaded!');
       } catch (err) {
         logToConsole('Error loading sample file: ' + err.message, 'error');
-        showToast('Could not load sample file locally.');
+        showToast('Could not load the sample file. Open the app through server.js (node server.js).', 'error');
       }
     });
   });
@@ -242,9 +250,9 @@ function setupModeSelection() {
   });
 
   btnToggleDecompress.addEventListener('click', () => {
-    if (!isShrinkFile(appState.currentFile)) {
-      showToast('Decompression is restricted to .shrink files only.');
-      logToConsole('Decompression blocked: File must have a .shrink extension.', 'error');
+    if (!isArchiveFile(appState.currentFile)) {
+      showToast('Only .shrink or .sb archives can be decompressed.', 'error');
+      logToConsole('Decompression blocked: File must have a .shrink or .sb extension.', 'error');
       return;
     }
     setMode('decompress', true);
@@ -253,15 +261,17 @@ function setupModeSelection() {
 
 // Setup Modals
 function setupModals() {
-  btnTeamModal.addEventListener('click', () => teamModal.classList.remove('hidden'));
-  btnCloseTeamModal.addEventListener('click', () => teamModal.classList.add('hidden'));
+  btnTeamModal.addEventListener('click', () => teamModal.showModal());
+  btnCloseTeamModal.addEventListener('click', () => teamModal.close());
 
-  btnArchitectureModal.addEventListener('click', () => archModal.classList.remove('hidden'));
-  btnCloseArchModal.addEventListener('click', () => archModal.classList.add('hidden'));
+  btnArchitectureModal.addEventListener('click', () => archModal.showModal());
+  btnCloseArchModal.addEventListener('click', () => archModal.close());
 
-  window.addEventListener('click', (e) => {
-    if (e.target === teamModal) teamModal.classList.add('hidden');
-    if (e.target === archModal) archModal.classList.add('hidden');
+  // Clicking the dimmed area around the card closes the dialog
+  [teamModal, archModal].forEach(dialog => {
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.close();
+    });
   });
 }
 
@@ -281,10 +291,13 @@ function pickSingleFile(fileList) {
 
 function handleIncomingFile(file) {
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    showToast(`"${file.name}" exceeds the 1 GB size limit and was not loaded.`);
+    showToast(`"${file.name}" exceeds the 1 GB size limit and was not loaded.`, 'error');
     logToConsole(`Rejected "${file.name}": size ${formatBytes(file.size)} exceeds the 1 GB limit.`, 'error');
     return;
   }
+
+  // A new file replaces the old one, so stop any job still working on the old one
+  if (activeRun) cancelActiveRun('a new file was loaded');
 
   appState.currentFile = file;
   appState.processedBlob = null;
@@ -292,7 +305,7 @@ function handleIncomingFile(file) {
   // Format file details
   fileName.textContent = file.name;
   fileSize.textContent = formatBytes(file.size);
-  
+
   const ext = getFileExtension(file.name);
   fileTypeIcon.textContent = ext ? ext.toUpperCase().slice(0, 6) : 'FILE';
   fileMime.textContent = file.type || 'Binary / Raw Data';
@@ -303,9 +316,9 @@ function handleIncomingFile(file) {
   resultsSection.classList.add('hidden');
   progressSection.classList.add('hidden');
 
-  // Smart Extension Analysis: strictly enforce .shrink for decompression
-  analyzeFileExtension(ext, file.name);
-  
+  // Smart Extension Analysis: only .shrink / .sb archives can be decompressed
+  analyzeFileExtension(file.name);
+
   // Show Mode switcher bar & CTA
   modeSwitcherBar.classList.remove('hidden');
   ctaContainer.classList.remove('hidden');
@@ -328,28 +341,39 @@ function getFileExtension(filename) {
 const HISTOGRAM_SIZE_CAP_BYTES = 50 * 1024 * 1024; // keep the main thread responsive
 const HISTOGRAM_TOP_N = 12;
 
+// Each scan gets an id; a scan that finishes after another file was loaded is discarded
+let histogramScanId = 0;
+
 async function renderByteHistogram(file) {
+  const scanId = ++histogramScanId;
   byteHistogramCard.classList.remove('hidden');
   byteHistogramBars.style.display = 'flex';
   btnToggleHistogram.textContent = 'Collapse';
+  btnToggleHistogram.setAttribute('aria-expanded', 'true');
+  byteHistogramBars.replaceChildren();
 
   if (file.size === 0) {
     byteHistogramSub.textContent = 'File is empty — nothing to analyze.';
-    byteHistogramBars.innerHTML = '';
     return;
   }
 
   if (file.size > HISTOGRAM_SIZE_CAP_BYTES) {
     byteHistogramSub.textContent = `Skipped — file exceeds the ${formatBytes(HISTOGRAM_SIZE_CAP_BYTES)} live-preview cap.`;
-    byteHistogramBars.innerHTML = '';
     return;
   }
 
   byteHistogramSub.textContent = 'Scanning byte contents...';
-  byteHistogramBars.innerHTML = '';
 
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+  let bytes;
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer());
+  } catch (err) {
+    if (scanId !== histogramScanId) return;
+    byteHistogramSub.textContent = 'Could not read the file for the preview.';
+    logToConsole(`[Histogram] Could not read "${file.name}": ${err.message}`, 'error');
+    return;
+  }
+  if (scanId !== histogramScanId) return;
 
   const counts = new Uint32Array(256);
   for (let i = 0; i < bytes.length; i++) {
@@ -371,11 +395,23 @@ async function renderByteHistogram(file) {
     const pct = maxCount ? (count / maxCount) * 100 : 0;
     const row = document.createElement('div');
     row.className = 'byte-histogram-row';
-    row.innerHTML = `
-      <span class="byte-histogram-byte-label">${formatByteLabel(byteValue)}</span>
-      <span class="byte-histogram-bar-track"><span class="byte-histogram-bar-fill" style="width: ${pct}%;"></span></span>
-      <span class="byte-histogram-count">${count.toLocaleString()}</span>
-    `;
+
+    const label = document.createElement('span');
+    label.className = 'byte-histogram-byte-label';
+    label.textContent = formatByteLabel(byteValue);
+
+    const track = document.createElement('span');
+    track.className = 'byte-histogram-bar-track';
+    const fill = document.createElement('span');
+    fill.className = 'byte-histogram-bar-fill';
+    fill.style.width = `${pct}%`;
+    track.appendChild(fill);
+
+    const countEl = document.createElement('span');
+    countEl.className = 'byte-histogram-count';
+    countEl.textContent = count.toLocaleString();
+
+    row.append(label, track, countEl);
     byteHistogramBars.appendChild(row);
   });
 
@@ -386,51 +422,49 @@ function formatByteLabel(byteValue) {
   const hex = '0x' + byteValue.toString(16).padStart(2, '0').toUpperCase();
   const isPrintable = byteValue >= 32 && byteValue <= 126;
   if (isPrintable) {
-    const char = String.fromCharCode(byteValue).replace("'", "\\'");
-    return `'${char}' ${hex}`;
+    return `'${String.fromCharCode(byteValue)}' ${hex}`;
   }
   return hex;
 }
 
 /**
- * STRICT EXTENSION VALIDATION:
- * 1. Compressed files are saved in .shrink extension.
- * 2. Only files with .shrink extension can be decompressed.
+ * EXTENSION VALIDATION:
+ * 1. Compressed files are saved with the .shrink extension.
+ * 2. Only .shrink or .sb (C++ CLI) archives can be decompressed.
  */
-function analyzeFileExtension(ext, name) {
-  const hasShrink = (name && name.toLowerCase().endsWith('.shrink')) || ext === 'shrink';
-
-  if (hasShrink) {
-    // Official ShrinkByte archive: authorized for decompression
-    detectionBadge.textContent = 'Auto-Detected: .shrink Archive';
+function analyzeFileExtension(name) {
+  if (isArchiveFile(appState.currentFile)) {
+    // ShrinkByte archive: authorized for decompression
+    detectionBadge.textContent = 'Auto-Detected: SB01 Archive';
     btnToggleDecompress.disabled = false;
     btnToggleDecompress.classList.remove('disabled');
     btnToggleDecompress.removeAttribute('title');
     setMode('decompress', false);
-    logToConsole(`Valid .shrink archive detected: "${name}". Auto-configured for DECOMPRESSION.`, 'success');
+    logToConsole(`Archive detected: "${name}". Auto-configured for DECOMPRESSION.`, 'success');
   } else {
-    // Non-.shrink file: can ONLY be compressed
+    // Any other file can ONLY be compressed
     detectionBadge.textContent = 'Auto-Detected: Ready to Compress';
-    // Lock Decompress button because only .shrink files can be decompressed
     btnToggleDecompress.disabled = true;
     btnToggleDecompress.classList.add('disabled');
-    btnToggleDecompress.setAttribute('title', 'Only .shrink files can be decompressed');
+    btnToggleDecompress.setAttribute('title', 'Only .shrink or .sb archives can be decompressed');
     setMode('compress', false);
-    logToConsole(`Source file loaded: "${name}". Note: Only .shrink files can be decompressed. Auto-configured for COMPRESSION.`, 'info');
+    logToConsole(`Source file loaded: "${name}". Note: Only .shrink or .sb archives can be decompressed. Auto-configured for COMPRESSION.`, 'info');
   }
 }
 
 // Mode State Setter
 function setMode(mode, userOverride = false) {
-  if (mode === 'decompress' && !isShrinkFile(appState.currentFile)) {
-    showToast('Decompression is restricted to .shrink files only.');
-    logToConsole('Decompression blocked: File lacks .shrink extension.', 'error');
+  if (mode === 'decompress' && !isArchiveFile(appState.currentFile)) {
+    showToast('Only .shrink or .sb archives can be decompressed.', 'error');
+    logToConsole('Decompression blocked: File lacks a .shrink or .sb extension.', 'error');
     btnToggleCompress.classList.add('active');
     btnToggleDecompress.classList.remove('active');
     return;
   }
 
   appState.activeMode = mode;
+  btnToggleCompress.setAttribute('aria-pressed', String(mode === 'compress'));
+  btnToggleDecompress.setAttribute('aria-pressed', String(mode === 'decompress'));
 
   if (mode === 'compress') {
     btnToggleCompress.classList.add('active');
@@ -446,12 +480,13 @@ function setMode(mode, userOverride = false) {
     `;
 
     // Configure progress labels
+    uploadTitle.textContent = 'Reading File & Counting Byte Frequencies';
     processMainTitle.textContent = 'Huffman Coding Compression Pipeline';
-    processSubTitle.textContent = 'Calculating byte frequencies & building tree...';
+    processSubTitle.textContent = 'Waiting for the frequency table...';
     mileStep1Label.textContent = '1. Frequency Table';
     mileStep2Label.textContent = '2. Min-Heap & Tree';
-    mileStep3Label.textContent = '3. Code Generation';
-    mileStep4Label.textContent = '4. Bitstream Packing';
+    mileStep3Label.textContent = '3. Encode & Pack Bits';
+    mileStep4Label.textContent = '4. Round-Trip Check';
 
     if (userOverride) {
       logToConsole('User manually toggled mode to COMPRESS.', 'info');
@@ -470,12 +505,13 @@ function setMode(mode, userOverride = false) {
     `;
 
     // Configure progress labels
+    uploadTitle.textContent = 'Reading SB01 Header & Frequency Table';
     processMainTitle.textContent = 'Huffman Decompression Pipeline';
-    processSubTitle.textContent = 'Extracting metadata header & bitstream...';
+    processSubTitle.textContent = 'Waiting for the archive header...';
     mileStep1Label.textContent = '1. Header & Magic SB01';
-    mileStep2Label.textContent = '2. Tree Deserialization';
-    mileStep3Label.textContent = '3. Bitstream Traversal';
-    mileStep4Label.textContent = '4. Stream Reconstruction';
+    mileStep2Label.textContent = '2. Tree Rebuild';
+    mileStep3Label.textContent = '3. Bitstream Decoding';
+    mileStep4Label.textContent = '4. Size Check';
 
     if (userOverride) {
       logToConsole('User manually toggled mode to DECOMPRESS.', 'info');
@@ -484,296 +520,322 @@ function setMode(mode, userOverride = false) {
 }
 
 // ==========================================================================
-// DUAL PROGRESSION PIPELINE (Ingestion % and Huffman Process %)
+// PROCESSING PIPELINE (real progress reported by the SB01 codec)
 // ==========================================================================
 async function startExecutionPipeline() {
   if (!appState.currentFile || appState.isProcessing) return;
 
+  const file = appState.currentFile;
+  const isCompress = appState.activeMode === 'compress';
+
+  // Only .shrink / .sb archives can be decompressed
+  if (!isCompress && !isArchiveFile(file)) {
+    showToast('Only .shrink or .sb archives can be decompressed.', 'error');
+    logToConsole(`[ERROR] Decompression aborted: "${file.name}" is not a .shrink or .sb archive.`, 'error');
+    return;
+  }
+
+  const run = { cancelled: false, cancel: () => { run.cancelled = true; } };
+  activeRun = run;
   appState.isProcessing = true;
   btnExecuteAction.disabled = true;
   modeSwitcherBar.classList.add('hidden');
   ctaContainer.classList.add('hidden');
+  resultsSection.classList.add('hidden');
   progressSection.classList.remove('hidden');
-
-  const startTime = performance.now();
-  const file = appState.currentFile;
-  const isCompress = appState.activeMode === 'compress';
-
-  // Strict enforcement: only files with .shrink extension can be decompressed
-  if (!isCompress && !isShrinkFile(file)) {
-    showToast('Decompression error: Only files with a .shrink extension can be decompressed.');
-    logToConsole(`[ERROR] Decompression aborted: "${file.name}" lacks required .shrink extension.`, 'error');
-    appState.isProcessing = false;
-    btnExecuteAction.disabled = false;
-    ctaContainer.classList.remove('hidden');
-    modeSwitcherBar.classList.remove('hidden');
-    progressSection.classList.add('hidden');
-    return;
-  }
 
   resetMilestones();
   clearArchitectureHighlights();
+  resetProgressBars();
+  uploadStatusDesc.textContent = isCompress
+    ? 'Reading the file in 4 MB chunks to build the 0–255 byte frequency table.'
+    : 'Checking the SB01 magic, original size and frequency table.';
 
-  // ------------------------------------------------------------------------
-  // STAGE 1: Upload / Memory Ingestion Progress Bar (0% -> 100%)
-  // ------------------------------------------------------------------------
-  highlightArchNode('input');
-  highlightArchNode('fileManager');
-  logToConsole(`[Stage 1] Ingesting "${file.name}" into client-side RAM buffer...`, 'info');
+  const tracker = createProgressTracker(isCompress);
+  const startTime = performance.now();
+  logToConsole(`[Start] ${isCompress ? 'Compressing' : 'Decompressing'} "${file.name}" (${formatBytes(file.size)}) in your browser. Nothing is uploaded.`, 'info');
 
-  uploadStateBadge.textContent = 'Streaming...';
-  uploadStateBadge.className = 'state-pill in-progress';
+  try {
+    const result = await runCodec(run, isCompress ? 'compress' : 'decompress', file, (p) => {
+      if (run === activeRun) tracker.update(p);
+    });
+    if (run !== activeRun) return; // cancelled while finishing
+    tracker.finish();
 
-  await simulateUploadProgress(file.size);
+    const durationMs = Math.round(performance.now() - startTime);
+    appState.stats.executionTimeMs = durationMs;
+    appState.stats.originalSize = file.size;
+    appState.stats.processedSize = result.outputSize;
+    appState.stats.verified = Boolean(result.verified);
+    appState.processedBlob = result.blob;
+    appState.outputFileName = isCompress ? compressedName(file.name) : restoredName(file.name);
 
-  uploadStateBadge.textContent = 'In RAM ✓';
-  uploadStateBadge.className = 'state-pill done';
-  uploadStatusDesc.textContent = 'File successfully loaded into local memory. Ready for algorithmic processing.';
-  logToConsole(`[Stage 1] Ingestion complete. Read ${formatBytes(file.size)} (100%). Zero network transmission.`, 'success');
+    if (isCompress) {
+      logToConsole(`[Done] ${formatBytes(file.size)} → ${formatBytes(result.outputSize)} (${result.distinctBytes} distinct byte values). Round-trip check passed.`, 'success');
+    } else {
+      logToConsole(`[Done] Restored ${formatBytes(result.outputSize)}; size matches the SB01 header.`, 'success');
+    }
 
-  // Short dynamic pause between stages
-  await sleep(200);
+    showResultsCard(isCompress);
+  } catch (err) {
+    if (run !== activeRun) return; // cancelled: resetAll already cleaned up
+    showPipelineError(err, isCompress);
+  } finally {
+    if (run === activeRun) {
+      activeRun = null;
+      appState.isProcessing = false;
+      btnExecuteAction.disabled = false;
+    }
+  }
+}
 
-  // ------------------------------------------------------------------------
-  // STAGE 2: Algorithmic Compressing or Decompressing Progress Bar (0% -> 100%)
-  // ------------------------------------------------------------------------
-  logToConsole(`[Stage 2] Launching Huffman ${isCompress ? 'Compression' : 'Decompression'} Engine...`, 'info');
-  await simulateProcessProgress(isCompress);
-
-  // Execute processing hook (for developer manual engine or simulated client payload)
-  const result = await processFileWithBackend(file, appState.activeMode);
-
-  const durationMs = Math.round(performance.now() - startTime);
-  appState.stats.executionTimeMs = durationMs;
-  appState.processedBlob = result.blob;
-  appState.outputFileName = result.outputName;
-  appState.stats.originalSize = file.size;
-  appState.stats.processedSize = result.blob.size;
-  
-  if (isCompress) {
-    const saved = file.size - result.blob.size;
-    const ratio = ((saved / file.size) * 100).toFixed(1);
-    appState.stats.ratio = ratio > 0 ? ratio : '0';
-  } else {
-    const ratio = (((result.blob.size - file.size) / file.size) * 100).toFixed(1);
-    appState.stats.ratio = ratio;
+// Runs the codec in a Web Worker; falls back to the main thread if workers are unavailable
+// (for example when index.html is opened straight from disk instead of through server.js).
+function runCodec(run, action, file, onProgress) {
+  let worker = null;
+  try {
+    worker = new Worker('sb01-worker.js');
+  } catch (err) {
+    logToConsole('Web Worker unavailable; processing on the main thread instead.', 'info');
   }
 
-  logToConsole(`[Stage 2] Finished in ${durationMs} ms. Output size: ${formatBytes(result.blob.size)}. Byte fidelity verified.`, 'success');
+  if (!worker) {
+    const options = { onProgress, isCancelled: () => run.cancelled };
+    return action === 'compress' ? SB01.compress(file, options) : SB01.decompress(file, options);
+  }
 
-  // Display Final Results Card
-  showResultsCard(isCompress);
+  return new Promise((resolve, reject) => {
+    run.cancel = () => {
+      run.cancelled = true;
+      worker.terminate();
+      reject(new SB01.SB01Error(SB01.Status.CANCELLED));
+    };
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'progress') {
+        onProgress(msg);
+        return;
+      }
+      worker.terminate();
+      if (msg.type === 'done') {
+        resolve(msg.result);
+      } else {
+        const error = new Error(msg.message);
+        error.status = msg.status;
+        reject(error);
+      }
+    };
+    worker.onerror = (e) => {
+      e.preventDefault();
+      worker.terminate();
+      reject(new Error(e.message || 'The compression worker failed to start.'));
+    };
+    worker.postMessage({ action, file });
+  });
+}
+
+function cancelActiveRun(reason) {
+  const run = activeRun;
+  if (!run) return;
+  activeRun = null;
+  run.cancel();
   appState.isProcessing = false;
   btnExecuteAction.disabled = false;
+  logToConsole(`Processing cancelled: ${reason}.`, 'info');
 }
 
-// Ingestion Progress Simulation (mimics chunked byte reading)
-async function simulateUploadProgress(totalBytes) {
-  let loaded = 0;
-  const steps = 20;
-  const chunkSize = totalBytes / steps;
-
-  for (let i = 1; i <= steps; i++) {
-    loaded = Math.min(totalBytes, Math.round(chunkSize * i));
-    const percent = Math.round((loaded / totalBytes) * 100);
-
-    uploadProgressBar.style.width = percent + '%';
-    uploadPercentText.textContent = percent + '%';
-    uploadBytesMetric.textContent = `${formatBytes(loaded)} / ${formatBytes(totalBytes)}`;
-    
-    // Simulated reading speed (approx 35-50 MB/s RAM throughput)
-    const simulatedSpeed = (35 + Math.random() * 15).toFixed(1);
-    uploadSpeedMetric.textContent = `${simulatedSpeed} MB/s`;
-
-    await sleep(25 + Math.random() * 20);
-  }
-}
-
-// Algorithmic Progress Simulation (tracking the 4 project milestones)
-async function simulateProcessProgress(isCompress) {
-  const milestoneMap = [
-    {
-      pct: 25,
-      node: isCompress ? 'freqTable' : 'fileManager',
-      chip: mileStep1,
-      title: isCompress ? 'Calculating Byte Frequencies (0–255 histogram)...' : 'Reading SB01 Magic Header & Bitstream...',
-      log: isCompress ? '[FrequencyTable] Scanning byte frequencies across file payload...' : '[MetadataManager] Verified SB01 Magic bytes and padding count.'
-    },
-    {
-      pct: 50,
-      node: isCompress ? 'minHeap' : 'metadata',
-      chip: mileStep2,
-      title: isCompress ? 'Building Min-Heap Priority Queue & Huffman Binary Tree...' : 'Deserializing Huffman Frequency Tree...',
-      log: isCompress ? '[MinHeap] Assembling priority queue. Merging least-frequent byte nodes...' : '[HuffmanDecoder] Tree reconstructed. 256 node slots active.'
-    },
-    {
-      pct: 75,
-      node: isCompress ? 'huffTree' : 'encoder',
-      chip: mileStep3,
-      title: isCompress ? 'Generating Canonical Variable-Length Prefix Codes...' : 'Traversing Huffman Tree & Decoding Bitstream...',
-      log: isCompress ? '[HuffmanEncoder] Traversal complete. Generated optimal prefix bit codes.' : '[HuffmanDecoder] Variable-length bits resolved to byte symbols.'
-    },
-    {
-      pct: 100,
-      node: isCompress ? 'compressed' : 'input',
-      chip: mileStep4,
-      title: isCompress ? 'Packing Bits into Bytes & Writing Header Metadata...' : 'Reconstructing Original File with 100% Fidelity...',
-      log: isCompress ? '[FileManager] Packed bitstream into bytes. Metadata attached. Ready!' : '[Decompressor] Original byte sequence restored. Checksum match!'
-    }
-  ];
-
-  let currentPercent = 0;
-
-  for (const milestone of milestoneMap) {
-    milestone.chip.classList.add('active');
-    highlightArchNode(milestone.node);
-    processSubTitle.textContent = milestone.title;
-    logToConsole(milestone.log, 'info');
-
-    // Smooth progress increment to milestone percentage
-    while (currentPercent < milestone.pct) {
-      currentPercent += 2;
-      if (currentPercent > milestone.pct) currentPercent = milestone.pct;
-
-      processProgressBar.style.width = currentPercent + '%';
-      processPercentText.textContent = currentPercent + '%';
-      await sleep(18 + Math.random() * 15);
-    }
-
-    milestone.chip.classList.remove('active');
-    milestone.chip.classList.add('completed');
-    await sleep(80);
-  }
-}
-
-// ==========================================================================
-// DEVELOPER INTEGRATION HOOK (Manual C/C++ Huffman Coding Hook)
-// ==========================================================================
-/**
- * Developer Hook:
- * When you compile your manual C/C++ Huffman engine to WebAssembly or an executable backend,
- * invoke your custom binary or WebAssembly function here.
- * For now, this provides a working client-side file representation with zero data retention.
- */
-async function processFileWithBackend(file, action) {
-  const isCompress = action === 'compress';
-
-  if (isCompress) {
-    // Generate .shrink file format locally in RAM
-    const originalBuffer = await file.arrayBuffer();
-    const originalBytes = new Uint8Array(originalBuffer);
-
-    // Realistic compression ratio for demonstration (around 40% - 50% for code/text/csv)
-    // Produces a realistic byte-array without touching any server
-    const targetSize = Math.max(32, Math.round(originalBytes.length * 0.58));
-    const compressedData = new Uint8Array(targetSize);
-
-    // Insert ShrinkByte Magic Header with original filename: "SB01|original_filename|"
-    const headerString = `SB01|${file.name}|`;
-    const headerBytes = new TextEncoder().encode(headerString);
-    compressedData.set(headerBytes, 0);
-
-    // Fill simulated encoded bitstream
-    for (let i = headerBytes.length; i < targetSize; i++) {
-      compressedData[i] = (originalBytes[i % originalBytes.length] ^ 0xAA) & 0xFF;
-    }
-
-    const compressedBlob = new Blob([compressedData], { type: 'application/octet-stream' });
-    
-    // Output filename: replace input extension with .shrink (e.g. example.c -> example.shrink)
-    let outputName;
-    if (file.name.toLowerCase().endsWith('.shrink')) {
-      outputName = file.name;
-    } else {
-      const lastDot = file.name.lastIndexOf('.');
-      const baseName = (lastDot > 0) ? file.name.slice(0, lastDot) : file.name;
-      outputName = `${baseName}.shrink`;
-    }
-
-    return {
-      blob: compressedBlob,
-      outputName: outputName
-    };
-  } else {
-    // Decompression: strictly for .shrink files
-    const originalBuffer = await file.arrayBuffer();
-    const inputBytes = new Uint8Array(originalBuffer);
-
-    // Expand back to restored size
-    const restoredSize = Math.round(inputBytes.length * 1.72);
-    const restoredData = new Uint8Array(restoredSize);
-
-    for (let i = 0; i < restoredSize; i++) {
-      restoredData[i] = (inputBytes[i % inputBytes.length] ^ 0xAA) & 0xFF;
-    }
-
-    // Determine restored file name:
-    // First, check if original filename was preserved in the SB01 metadata header
-    let restoredName = '';
-    try {
-      const prefixHeader = new TextDecoder().decode(inputBytes.slice(0, 100));
-      const match = prefixHeader.match(/^SB01\|([^|]+)\|/);
-      if (match && match[1]) {
-        restoredName = match[1];
+// Maps codec phases onto the two progress bars, the milestone chips and the architecture diagram.
+// Compress:   read → (stage 1)   tree → encode → verify (stage 2)
+// Decompress: read → (stage 1)   tree → decode (stage 2)
+function createProgressTracker(isCompress) {
+  const stage2 = isCompress
+    ? { tree: [0, 5], encode: [5, 80], verify: [80, 100] }
+    : { tree: [0, 5], decode: [5, 100] };
+  const chips = isCompress
+    ? { tree: mileStep2, encode: mileStep3, verify: mileStep4 }
+    : { tree: mileStep2, decode: mileStep3 };
+  const titles = isCompress
+    ? {
+        tree: 'Building the min-heap and merging nodes into the Huffman tree...',
+        encode: 'Encoding bytes with prefix codes and packing bits into bytes...',
+        verify: 'Decompressing the new archive and comparing it with the original...'
       }
-    } catch (e) {
-      // ignore decoding error
-    }
-
-    // Fallback: strip .shrink extension from current filename
-    if (!restoredName) {
-      if (file.name.toLowerCase().endsWith('.shrink')) {
-        restoredName = file.name.slice(0, -7);
-      } else {
-        restoredName = `decompressed_${file.name}`;
+    : {
+        tree: 'Rebuilding the Huffman tree from the frequency table...',
+        decode: 'Walking the tree bit by bit to recover the original bytes...'
+      };
+  const logs = isCompress
+    ? {
+        tree: '[MinHeap] Frequency table complete. Building the Huffman tree.',
+        encode: '[HuffmanEncoder] Writing the SB01 header and encoding the bitstream.',
+        verify: '[Verify] Decoding the archive to confirm it restores the original exactly.'
       }
+    : {
+        tree: '[MetadataManager] SB01 header is valid. Rebuilding the Huffman tree.',
+        decode: '[HuffmanDecoder] Decoding the bitstream.'
+      };
+  const archByPhase = isCompress
+    ? { read: ['input', 'fileManager', 'freqTable'], tree: ['minHeap', 'huffTree'], encode: ['encoder', 'metadata'], verify: ['compressed'] }
+    : { read: ['input', 'fileManager', 'metadata'], tree: ['huffTree'], decode: ['encoder', 'compressed'] };
+
+  let currentPhase = null;
+  let readStart = performance.now();
+
+  function enterPhase(phase) {
+    if (phase === currentPhase) return;
+    if (currentPhase && chips[currentPhase]) {
+      chips[currentPhase].classList.remove('active');
+      chips[currentPhase].classList.add('completed');
+    }
+    currentPhase = phase;
+    (archByPhase[phase] || []).forEach(highlightArchNode);
+
+    if (phase === 'read') {
+      readStart = performance.now();
+      mileStep1.classList.add('active');
+      uploadStateBadge.textContent = 'Reading...';
+      uploadStateBadge.className = 'state-pill in-progress';
+      return;
     }
 
-    const restoredBlob = new Blob([restoredData], { type: 'application/octet-stream' });
-
-    return {
-      blob: restoredBlob,
-      outputName: restoredName
-    };
+    // Leaving the read phase completes stage 1
+    if (!mileStep1.classList.contains('completed')) {
+      mileStep1.classList.remove('active');
+      mileStep1.classList.add('completed');
+      setBar(uploadProgressBar, uploadPercentText, 100);
+      uploadStateBadge.textContent = 'Done ✓';
+      uploadStateBadge.className = 'state-pill done';
+    }
+    if (chips[phase]) chips[phase].classList.add('active');
+    processSubTitle.textContent = titles[phase] || processSubTitle.textContent;
+    if (logs[phase]) logToConsole(logs[phase], 'info');
   }
+
+  return {
+    update({ phase, done, total }) {
+      enterPhase(phase);
+      const fraction = total > 0 ? Math.min(1, done / total) : 1;
+
+      if (phase === 'read') {
+        setBar(uploadProgressBar, uploadPercentText, fraction * 100);
+        uploadBytesMetric.textContent = `${formatBytes(done)} / ${formatBytes(total)}`;
+        const seconds = (performance.now() - readStart) / 1000;
+        uploadSpeedMetric.textContent = seconds > 0.05 ? `${(done / 1048576 / seconds).toFixed(1)} MB/s` : '—';
+        return;
+      }
+
+      const range = stage2[phase];
+      if (range) setBar(processProgressBar, processPercentText, range[0] + (range[1] - range[0]) * fraction);
+    },
+    finish() {
+      enterPhase('finished');
+      [mileStep1, mileStep2, mileStep3, mileStep4].forEach(chip => {
+        chip.classList.remove('active');
+        chip.classList.add('completed');
+      });
+      setBar(uploadProgressBar, uploadPercentText, 100);
+      setBar(processProgressBar, processPercentText, 100);
+      processSubTitle.textContent = isCompress
+        ? 'Archive written and verified against the original.'
+        : 'Original bytes restored; size matches the header.';
+    }
+  };
+}
+
+function setBar(bar, label, percent) {
+  const rounded = Math.round(percent);
+  bar.style.width = rounded + '%';
+  label.textContent = rounded + '%';
+}
+
+function showPipelineError(err, isCompress) {
+  const message = err && err.message ? err.message : 'Unknown error';
+  uploadStateBadge.textContent = 'Failed';
+  uploadStateBadge.className = 'state-pill failed';
+  processSubTitle.textContent = `Stopped: ${message}`;
+  [mileStep1, mileStep2, mileStep3, mileStep4].forEach(chip => chip.classList.remove('active'));
+  logToConsole(`[ERROR] ${isCompress ? 'Compression' : 'Decompression'} failed: ${message}`, 'error');
+  showToast(`${isCompress ? 'Compression' : 'Decompression'} failed: ${message}`, 'error');
+
+  // Let the user try again or pick another mode
+  modeSwitcherBar.classList.remove('hidden');
+  ctaContainer.classList.remove('hidden');
+}
+
+// example_code.c -> example_code.c.shrink, so decompressing restores the full original name
+function compressedName(name) {
+  return `${name}.shrink`;
+}
+
+// example_code.c.shrink -> example_code.c ; data.sb -> data
+function restoredName(name) {
+  const lower = name.toLowerCase();
+  const ext = ARCHIVE_EXTENSIONS.find(e => lower.endsWith(e));
+  const base = ext ? name.slice(0, -ext.length) : '';
+  return base || `restored_${name}`;
 }
 
 // ==========================================================================
 // RESULTS & LOCAL DOWNLOAD
 // ==========================================================================
 function showResultsCard(isCompress) {
+  const { originalSize, processedSize } = appState.stats;
   resultsSection.classList.remove('hidden');
+  metricRatioValue.classList.remove('highlight-emerald', 'highlight-warning');
 
   if (isCompress) {
-    resultsTitle.textContent = 'Compression Completed Successfully!';
-    resultsSubtitle.textContent = 'Optimal Huffman prefix bitstream constructed. 100% lossless fidelity guaranteed.';
+    resultsTitle.textContent = 'Compression Complete';
+    resultsSubtitle.textContent = appState.stats.verified
+      ? 'Round-trip verified: decompressing the archive gave back every byte of the original.'
+      : 'Archive written.';
+    metricOriginalLabel.textContent = 'Original File Size';
+    metricOriginalSub.textContent = 'Raw input bytes';
     metricProcessedLabel.textContent = 'Compressed Size';
-    metricProcessedSize.textContent = formatBytes(appState.stats.processedSize);
-    metricRatioLabel.textContent = 'Space Saved';
-    metricRatioValue.textContent = `${appState.stats.ratio}%`;
-    metricRatioSub.textContent = `${formatBytes(appState.stats.originalSize - appState.stats.processedSize)} reduced`;
+    metricProcessedSub.textContent = 'SB01 header + bitstream';
+
+    const saved = originalSize - processedSize;
+    if (originalSize === 0) {
+      metricRatioLabel.textContent = 'Space Saved';
+      metricRatioValue.textContent = '—';
+      metricRatioSub.textContent = 'Empty input: the archive is just the header';
+    } else if (saved >= 0) {
+      metricRatioLabel.textContent = 'Space Saved';
+      metricRatioValue.textContent = `${((saved / originalSize) * 100).toFixed(1)}%`;
+      metricRatioValue.classList.add('highlight-emerald');
+      metricRatioSub.textContent = `${formatBytes(saved)} smaller`;
+    } else {
+      metricRatioLabel.textContent = 'Size Change';
+      metricRatioValue.textContent = `+${((-saved / originalSize) * 100).toFixed(1)}% larger`;
+      metricRatioValue.classList.add('highlight-warning');
+      metricRatioSub.textContent = `${formatBytes(-saved)} added: the header and codes outweigh the savings for this file`;
+    }
   } else {
-    resultsTitle.textContent = 'Decompression Completed Successfully!';
-    resultsSubtitle.textContent = 'Binary tree traversed and exact byte stream recovered without data alteration.';
+    resultsTitle.textContent = 'Decompression Complete';
+    resultsSubtitle.textContent = 'Every byte decoded; the restored size matches the SB01 header.';
+    metricOriginalLabel.textContent = 'Archive Size';
+    metricOriginalSub.textContent = 'SB01 input';
     metricProcessedLabel.textContent = 'Decompressed Size';
-    metricProcessedSize.textContent = formatBytes(appState.stats.processedSize);
+    metricProcessedSub.textContent = 'Restored original bytes';
     metricRatioLabel.textContent = 'Payload Expansion';
-    metricRatioValue.textContent = `+${appState.stats.ratio}%`;
+    const change = originalSize > 0 ? ((processedSize - originalSize) / originalSize) * 100 : 0;
+    metricRatioValue.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
     metricRatioSub.textContent = 'Full file recovered';
   }
 
-  metricOriginalSize.textContent = formatBytes(appState.stats.originalSize);
+  metricOriginalSize.textContent = formatBytes(originalSize);
+  metricProcessedSize.textContent = formatBytes(processedSize);
   metricTimeValue.textContent = `${appState.stats.executionTimeMs} ms`;
   downloadFileName.textContent = appState.outputFileName;
 
-  // Scroll smoothly to results
-  resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // Scroll smoothly to results (instantly when the user prefers reduced motion)
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  resultsSection.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' });
 }
 
 // Trigger Local Download (100% Client-Side In-Memory)
 function triggerLocalDownload() {
   if (!appState.processedBlob || !appState.outputFileName) {
-    showToast('No processed file ready for download.');
+    showToast('No processed file ready for download.', 'error');
     return;
   }
 
@@ -799,15 +861,19 @@ function triggerLocalDownload() {
 // UI HELPER UTILITIES
 // ==========================================================================
 function resetAll() {
+  if (activeRun) cancelActiveRun('the file was removed');
+  histogramScanId++; // discard a histogram scan that is still reading
+
   appState.currentFile = null;
   appState.processedBlob = null;
   appState.outputFileName = '';
   appState.isProcessing = false;
+  btnExecuteAction.disabled = false;
   fileInput.value = '';
 
   fileDetailsCard.classList.add('hidden');
   byteHistogramCard.classList.add('hidden');
-  byteHistogramBars.innerHTML = '';
+  byteHistogramBars.replaceChildren();
   modeSwitcherBar.classList.add('hidden');
   ctaContainer.classList.add('hidden');
   progressSection.classList.add('hidden');
@@ -820,14 +886,19 @@ function resetAll() {
 
   resetMilestones();
   clearArchitectureHighlights();
+  resetProgressBars();
 
-  uploadProgressBar.style.width = '0%';
-  uploadPercentText.textContent = '0%';
-  processProgressBar.style.width = '0%';
-  processPercentText.textContent = '0%';
-
-  terminalConsole.innerHTML = '';
+  terminalConsole.replaceChildren();
   logToConsole('Session reset. Ready for next file.', 'info');
+}
+
+function resetProgressBars() {
+  setBar(uploadProgressBar, uploadPercentText, 0);
+  setBar(processProgressBar, processPercentText, 0);
+  uploadBytesMetric.textContent = '0 Bytes';
+  uploadSpeedMetric.textContent = '—';
+  uploadStateBadge.textContent = 'Waiting...';
+  uploadStateBadge.className = 'state-pill in-progress';
 }
 
 function resetMilestones() {
@@ -857,7 +928,7 @@ function logToConsole(message, type = 'info') {
 
   let typeSpan = `<span class="log-info">[INFO]</span>`;
   if (type === 'success') typeSpan = `<span class="log-success">[SUCCESS]</span>`;
-  if (type === 'error') typeSpan = `<span style="color: #ef4444; font-weight: 600;">[ERROR]</span>`;
+  if (type === 'error') typeSpan = `<span class="log-error">[ERROR]</span>`;
 
   line.innerHTML = `<span class="log-time">${timeStr}</span> ${typeSpan} ${escapeHtml(message)}`;
   terminalConsole.appendChild(line);
@@ -866,32 +937,38 @@ function logToConsole(message, type = 'info') {
 
 let toastHideTimer = null;
 
-function showToast(msg) {
+// type: 'info' (check icon) or 'error' (warning icon); also read out by screen readers
+function showToast(msg, type = 'info') {
+  const isError = type === 'error';
   toastMessage.textContent = msg;
+  toastIcon.textContent = isError ? '!' : '✓';
+  toastNotification.classList.toggle('toast-error', isError);
   toastNotification.classList.remove('hidden');
+
+  liveAnnouncer.textContent = '';
+  liveAnnouncer.textContent = msg;
 
   if (toastHideTimer) clearTimeout(toastHideTimer);
   toastHideTimer = setTimeout(() => {
     toastNotification.classList.add('hidden');
     toastHideTimer = null;
-  }, 3500);
+  }, isError ? 6000 : 3500);
 }
 
 function formatBytes(bytes, decimals = 1) {
-  if (!bytes || bytes === 0) return '0 Bytes';
+  if (!Number.isFinite(bytes)) return '—';
+  const sign = bytes < 0 ? '-' : '';
+  const abs = Math.abs(bytes);
+  if (abs < 1024) return `${sign}${abs} ${abs === 1 ? 'Byte' : 'Bytes'}`;
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(abs) / Math.log(k)), sizes.length - 1);
+  return sign + parseFloat((abs / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
 function escapeHtml(str) {
-  return str.replace(/[&<>'"]/g, 
+  return str.replace(/[&<>'"]/g,
     tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
   );
 }
