@@ -1,1 +1,1 @@
-g++ -std=c++11 -Wall main1.cpp HuffmanEncodercpp1.cpp minheap.cpp frequency.cpp -o shrinkbyte
+g++ -std=c++11 -Wall -DUSE_DARSH_TREE main1.cpp HuffmanEncodercpp1.cpp minheap.cpp frequency.cpp -o shrinkbyte

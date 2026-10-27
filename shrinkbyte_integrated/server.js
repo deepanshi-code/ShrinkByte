@@ -43,7 +43,7 @@ function buildBackend() {
   const sources = ['main1.cpp', 'HuffmanEncodercpp1.cpp', 'minheap.cpp', 'frequency.cpp'];
   try {
     // Same command as backend/build.txt
-    execFileSync('g++', ['-std=c++11', '-O2', ...sources, '-o', BIN_NAME], { cwd: BACKEND_DIR, stdio: 'pipe' });
+    execFileSync('g++', ['-std=c++11', '-O2', '-DUSE_DARSH_TREE', ...sources, '-o', BIN_NAME], { cwd: BACKEND_DIR, stdio: 'pipe' });
     console.log('Built C++ backend: ' + BIN_PATH);
     return true;
   } catch (e) {
