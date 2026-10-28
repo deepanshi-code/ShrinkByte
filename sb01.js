@@ -37,7 +37,8 @@
     SIZE_MISMATCH: 'SIZE_MISMATCH',
     CORRUPT_DATA: 'CORRUPT_DATA',
     TOO_LARGE: 'TOO_LARGE',
-    CANCELLED: 'CANCELLED'
+    CANCELLED: 'CANCELLED',
+    NOT_COMPRESSIBLE: 'NOT_COMPRESSIBLE'
   };
 
   const STATUS_MESSAGES = {
@@ -48,7 +49,8 @@
     SIZE_MISMATCH: 'Size mismatch between header and data',
     CORRUPT_DATA: 'Corrupt data',
     TOO_LARGE: 'File is larger than the 1 GB limit',
-    CANCELLED: 'Cancelled'
+    CANCELLED: 'Cancelled',
+    NOT_COMPRESSIBLE: "File can't be compressed further down. Original file will be used as it is."
   };
 
   class SB01Error extends Error {
@@ -321,6 +323,7 @@
   async function compress(blob, options = {}) {
     if (!blob || typeof blob.size !== 'number') throw new SB01Error(Status.INVALID_INPUT);
     if (blob.size > MAX_INPUT_BYTES) throw new SB01Error(Status.TOO_LARGE);
+    if (blob.size === 0) throw new SB01Error(Status.NOT_COMPRESSIBLE);
 
     const counts = await countBytes(blob, options);
 
@@ -328,6 +331,16 @@
     const tree = buildTree(counts);
     const codes = tree ? buildCodes(tree) : null;
     report(options, 'tree', 1, 1);
+
+    // Same check as compressBuffer() in the C++ engine: bail out before writing
+    // anything if the archive (header + frequency table + bitstream) would not
+    // actually be smaller than the original.
+    let totalBits = 0;
+    for (let b = 0; b < 256; b++) {
+      if (counts[b] > 0) totalBits += counts[b] * codes.length[b];
+    }
+    const estimatedSize = HEADER_SIZE + tree.distinct * ENTRY_SIZE + Math.ceil(totalBits / 8);
+    if (estimatedSize >= blob.size) throw new SB01Error(Status.NOT_COMPRESSIBLE);
 
     const header = writeHeader(blob.size, counts);
     const body = codes ? await encodeBody(blob, codes, options) : { parts: [], size: 0 };

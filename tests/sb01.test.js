@@ -48,21 +48,30 @@ for (const [original, archive] of GOLDEN) {
 test('round trip: every sample file', async () => {
   for (const name of fs.readdirSync(samples)) {
     const data = read(name);
+    // The two already-compressed golden archives correctly refuse to compress further.
+    if (name.endsWith('.sb') || name.endsWith('.shrink')) {
+      await assert.rejects(SB01.compress(new Blob([data])), { status: SB01.Status.NOT_COMPRESSIBLE }, name);
+      continue;
+    }
     const { restored } = await roundTrip(data);
     assert.deepStrictEqual(restored, data, name);
   }
 });
 
-test('round trip: empty, one byte, one repeated byte, all 256 values', async () => {
-  const cases = [
-    Buffer.alloc(0),
-    Buffer.from('A'),
-    Buffer.alloc(1000, 'Z'),
-    Buffer.from(Array.from({ length: 256 }, (_, i) => i))
-  ];
-  for (const data of cases) {
+test('round trip: one repeated byte compresses; empty, one byte, and all 256 values do not', async () => {
+  const compressible = [Buffer.alloc(1000, 'Z')];
+  for (const data of compressible) {
     const { restored } = await roundTrip(data);
     assert.deepStrictEqual(restored, data);
+  }
+
+  const notCompressible = [
+    Buffer.alloc(0),
+    Buffer.from('A'),
+    Buffer.from(Array.from({ length: 256 }, (_, i) => i))
+  ];
+  for (const data of notCompressible) {
+    await assert.rejects(SB01.compress(new Blob([data])), { status: SB01.Status.NOT_COMPRESSIBLE });
   }
 });
 
@@ -91,9 +100,8 @@ test('round trip: codes longer than 24 bits use the slow path correctly', async 
   assert.deepStrictEqual(restored, data);
 });
 
-test('empty input gives the 14-byte header only', async () => {
-  const result = await SB01.compress(new Blob([]));
-  assert.strictEqual(result.outputSize, 14);
+test('empty input is refused as not compressible, same as the C++ engine', async () => {
+  await assert.rejects(SB01.compress(new Blob([])), { status: SB01.Status.NOT_COMPRESSIBLE });
 });
 
 test('corrupt archives are rejected with the same messages as the C++ engine', async () => {
