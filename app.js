@@ -553,7 +553,7 @@ async function startExecutionPipeline() {
 
   const tracker = createProgressTracker(isCompress);
   const startTime = performance.now();
-  logToConsole(`[Start] ${isCompress ? 'Compressing' : 'Decompressing'} "${file.name}" (${formatBytes(file.size)}) in your browser. Nothing is uploaded.`, 'info');
+  logToConsole(`[Start] ${isCompress ? 'Compressing' : 'Decompressing'} "${file.name}" (${formatBytes(file.size)}) using the ShrinkByte engine.`, 'info');
 
   try {
     const result = await runCodec(run, isCompress ? 'compress' : 'decompress', file, (p) => {
@@ -589,9 +589,73 @@ async function startExecutionPipeline() {
   }
 }
 
-// Runs the codec in a Web Worker; falls back to the main thread if workers are unavailable
-// (for example when index.html is opened straight from disk instead of through server.js).
-function runCodec(run, action, file, onProgress) {
+// Tries the C++ backend (server.js -> shrinkbyte binary) first. If the backend is not
+// reachable (page opened from disk, binary not built), falls back to the in-browser codec.
+async function runCodec(run, action, file, onProgress) {
+  try {
+    return await runBackendCodec(run, action, file, onProgress);
+  } catch (err) {
+    if (!err || err.fallback !== true) throw err;
+    logToConsole('C++ backend not available; using the in-browser codec instead.', 'info');
+    return runBrowserCodec(run, action, file, onProgress);
+  }
+}
+
+function runBackendCodec(run, action, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const fallback = () => { const e = new Error('backend unavailable'); e.fallback = true; return e; };
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return reject(fallback());
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/' + action);
+    xhr.responseType = 'blob';
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    run.cancel = () => {
+      run.cancelled = true;
+      xhr.abort();
+      reject(new SB01.SB01Error(SB01.Status.CANCELLED));
+    };
+
+    onProgress({ phase: 'read', done: 0, total: file.size });
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress({ phase: 'read', done: e.loaded, total: e.total });
+    };
+    xhr.upload.onload = () => {
+      onProgress({ phase: 'read', done: file.size, total: file.size });
+      onProgress({ phase: 'tree', done: 1, total: 1 });
+      onProgress({ phase: action === 'compress' ? 'encode' : 'decode', done: 0, total: 1 });
+    };
+    xhr.onerror = () => reject(fallback());
+    xhr.onload = async () => {
+      if (xhr.status === 404 || xhr.status === 503 || xhr.status === 405) return reject(fallback());
+      if (xhr.status !== 200) {
+        let info = {};
+        try { info = JSON.parse(await xhr.response.text()); } catch (e) { /* not JSON */ }
+        const error = new Error(info.message || 'The C++ engine failed');
+        error.status = info.status || 'UNKNOWN';
+        return reject(error);
+      }
+      if (action === 'compress') {
+        onProgress({ phase: 'encode', done: 1, total: 1 });
+        onProgress({ phase: 'verify', done: 1, total: 1 });
+      } else {
+        onProgress({ phase: 'decode', done: 1, total: 1 });
+      }
+      resolve({
+        blob: xhr.response,
+        originalSize: file.size,
+        outputSize: xhr.response.size,
+        archiveSize: file.size,
+        distinctBytes: Number(xhr.getResponseHeader('X-Distinct-Bytes') || 0),
+        verified: xhr.getResponseHeader('X-Verified') === 'true'
+      });
+    };
+    xhr.send(file);
+  });
+}
+
+// Runs the JS codec in a Web Worker; falls back to the main thread if workers are unavailable
+function runBrowserCodec(run, action, file, onProgress) {
   let worker = null;
   try {
     worker = new Worker('sb01-worker.js');
