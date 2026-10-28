@@ -8,6 +8,17 @@ The project is developed as a practical implementation of **Data Structures in C
 
 ---
 
+## ▶️ Running Locally
+
+```
+node server.js
+```
+Then open `http://localhost:3000`.
+
+If `g++` is available on your machine, the server automatically compiles the C++ Huffman engine (`main1.cpp`, `HuffmanEncodercpp1.cpp`, `minheap.cpp`, `frequency.cpp`) on first start and routes compression/decompression through the real compiled binary via `/api/compress` and `/api/decompress`. If `g++` isn't available, it falls back automatically to the in-browser JavaScript engine (`sb01.js`) — either way, the UI works the same.
+
+---
+
 ## 📌 Motivation
 
 With the continuous growth of digital data, storing and transferring files efficiently has become an important requirement. Larger files consume more storage space and may require more time and bandwidth during transfer.
