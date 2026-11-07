@@ -31,10 +31,11 @@ enum class HuffmanStatus
     FILE_OPEN_FAILED,   
     FILE_READ_FAILED,   
     FILE_WRITE_FAILED,  
-    BAD_MAGIC,          
-    TRUNCATED_DATA,    
-    SIZE_MISMATCH,      
-    CORRUPT_DATA        
+    BAD_MAGIC,
+    TRUNCATED_DATA,
+    SIZE_MISMATCH,
+    CORRUPT_DATA,
+    NOT_COMPRESSIBLE
 };
 
 const char* huffmanStatusToString(HuffmanStatus status);

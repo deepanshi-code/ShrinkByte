@@ -8,7 +8,10 @@
 
 using namespace std;
 
-static bool readFile(const string& path, vector<uint8_t>& v) 
+static const char* NOT_COMPRESSIBLE_MSG =
+    "File can't be compressed further down. Original file will be used as it is.";
+
+static bool readFile(const string& path, vector<uint8_t>& v)
 {
     ifstream in(path, ios::binary);
 
@@ -52,7 +55,8 @@ static void demo()
 }
 
 static bool roundTrip(const char* name,
-                      const vector<uint8_t>& original) 
+                      const vector<uint8_t>& original,
+                      bool expectCompressible)
                       {
     HuffmanEncoder enc, dec;
 
@@ -61,11 +65,21 @@ static bool roundTrip(const char* name,
     HuffmanStatus s =
         enc.compressBuffer(original.data(), original.size(), packed);
 
+    if (s == HuffmanStatus::NOT_COMPRESSIBLE)
+    {
+        bool ok = !expectCompressible;
+        cout << "[" << (ok ? "PASS" : "FAIL") << "] "
+             << name << " " << original.size()
+             << " bytes -> not compressible, original kept\n";
+        return ok;
+    }
+
     if (s == HuffmanStatus::OK)
         s = dec.decompressBuffer(
             packed.data(), packed.size(), restored);
 
     bool ok = (s == HuffmanStatus::OK &&
+               expectCompressible &&
                restored == original);
     cout << "[" << (ok ? "PASS" : "FAIL") << "] "
          << name << " " << original.size()
@@ -106,12 +120,12 @@ static int runTests()
     for (int i = 0; i < 256; ++i)
         allBytes.push_back(static_cast<uint8_t>(i));
 
-    failed += !roundTrip("empty file", empty);
-    failed += !roundTrip("single byte", one);
-    failed += !roundTrip("one unique byte x1000", repeated);
-    failed += !roundTrip("text", text);
-    failed += !roundTrip("binary (pseudo-random)", binary);
-    failed += !roundTrip("all 256 byte values", allBytes);
+    failed += !roundTrip("empty file", empty, false);
+    failed += !roundTrip("single byte", one, false);
+    failed += !roundTrip("one unique byte x1000", repeated, true);
+    failed += !roundTrip("text", text, true);
+    failed += !roundTrip("binary (pseudo-random)", binary, false);
+    failed += !roundTrip("all 256 byte values", allBytes, false);
 
     HuffmanEncoder enc, dec;
     vector<uint8_t> packed, out;
@@ -186,6 +200,13 @@ static int verifyFile(const string& path)
     HuffmanStatus s =
         enc.compressBuffer(original.data(), original.size(), packed);
 
+    if (s == HuffmanStatus::NOT_COMPRESSIBLE)
+    {
+        cout << path << ": " << original.size() << " bytes. "
+             << NOT_COMPRESSIBLE_MSG << "\n";
+        return 0;
+    }
+
     if (s == HuffmanStatus::OK)
         s = dec.decompressBuffer(
             packed.data(), packed.size(), restored);
@@ -236,6 +257,12 @@ int main(int argc, char* argv[])
             (cmd == "compress")
                 ? codec.compressFile(argv[2], argv[3])
                 : codec.decompressFile(argv[2], argv[3]);
+
+        if (s == HuffmanStatus::NOT_COMPRESSIBLE)
+        {
+            cout << NOT_COMPRESSIBLE_MSG << "\n";
+            return 0;
+        }
 
         if (s != HuffmanStatus::OK) {
             cerr << "Error: "

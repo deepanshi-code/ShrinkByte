@@ -101,6 +101,7 @@ const char* huffmanStatusToString(HuffmanStatus status)
         case HuffmanStatus::TRUNCATED_DATA:    return "Truncated data: file ends too early";
         case HuffmanStatus::SIZE_MISMATCH:     return "Size mismatch between header and data";
         case HuffmanStatus::CORRUPT_DATA:      return "Corrupt data";
+        case HuffmanStatus::NOT_COMPRESSIBLE:  return "File can't be compressed further down";
     }
     return "Unknown error";
 }
@@ -186,6 +187,19 @@ HuffmanStatus HuffmanEncoder::compressBuffer(const uint8_t* data, size_t len, st
 
     buildTree(freqMap);
     buildCodes();
+
+    // Bail out before writing anything if the archive (header + frequency table +
+    // bitstream) would not actually be smaller than the original. Matches
+    // compressBuffer() on the Avika branch so both C++ builds and the JS engine agree.
+    uint64_t totalBits = 0;
+    for (const auto& pair : freqMap)
+    {
+        auto it = huffmanCodes.find(pair.first);
+        if (it == huffmanCodes.end()) return HuffmanStatus::CORRUPT_DATA;
+        totalBits += static_cast<uint64_t>(pair.second) * it->second.size();
+    }
+    uint64_t compressedSize = HEADER_SIZE + freqMap.size() * ENTRY_SIZE + (totalBits + 7) / 8;
+    if (compressedSize >= static_cast<uint64_t>(len)) return HuffmanStatus::NOT_COMPRESSIBLE;
 
     out.reserve(HEADER_SIZE + freqMap.size() * ENTRY_SIZE + len / 2 + 16);
 
