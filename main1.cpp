@@ -127,6 +127,40 @@ static int runTests()
     failed += !roundTrip("binary (pseudo-random)", binary, false);
     failed += !roundTrip("all 256 byte values", allBytes, false);
 
+    // Exactly 2 distinct byte values, evenly split: each should get a 1-bit code,
+    // the theoretical best case for Huffman coding on a binary alphabet.
+    {
+        vector<uint8_t> twoByte(2000);
+        for (size_t i = 0; i < twoByte.size(); ++i) twoByte[i] = (i % 2 == 0) ? 'A' : 'B';
+
+        HuffmanEncoder enc2, dec2;
+        vector<uint8_t> packed2, restored2;
+        HuffmanStatus s2 = enc2.compressBuffer(twoByte.data(), twoByte.size(), packed2);
+        if (s2 == HuffmanStatus::OK)
+            s2 = dec2.decompressBuffer(packed2.data(), packed2.size(), restored2);
+        bool ok2 = (s2 == HuffmanStatus::OK && restored2 == twoByte);
+        cout << "[" << (ok2 ? "PASS" : "FAIL")
+             << "] two distinct bytes, 50/50 split " << twoByte.size()
+             << " -> " << packed2.size() << " bytes\n";
+        failed += !ok2;
+    }
+
+    // An input larger than the 1 GB limit must be refused up front, not partially
+    // processed. The allocation itself is the expensive part of this test (~1 GB,
+    // zero-filled), not the compression, since TOO_LARGE is returned immediately.
+    {
+        const uint64_t overLimit = 1024ULL * 1024 * 1024 + 1; // must match MAX_INPUT_BYTES + 1
+        vector<uint8_t> huge(static_cast<size_t>(overLimit), 0);
+        HuffmanEncoder enc3;
+        vector<uint8_t> packed3;
+        HuffmanStatus s3 = enc3.compressBuffer(huge.data(), huge.size(), packed3);
+        bool ok3 = (s3 == HuffmanStatus::TOO_LARGE);
+        cout << "[" << (ok3 ? "PASS" : "FAIL")
+             << "] oversized input (1 GB + 1 byte) -> "
+             << huffmanStatusToString(s3) << "\n";
+        failed += !ok3;
+    }
+
     HuffmanEncoder enc, dec;
     vector<uint8_t> packed, out;
 

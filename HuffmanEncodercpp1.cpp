@@ -5,6 +5,9 @@ namespace
 {
 const size_t HEADER_SIZE = 4 + 8 + 2;
 const size_t ENTRY_SIZE = 1 + 4;
+// Same 1 GB limit as the browser engine (sb01.js MAX_INPUT_BYTES) and the local
+// Node server (server.js MAX_BYTES), so all three agree on what "too large" means.
+const uint64_t MAX_INPUT_BYTES = 1024ULL * 1024 * 1024;
 void putU16(std::vector<uint8_t>& v, uint16_t x) 
 {
     v.push_back(static_cast<uint8_t>(x & 0xFF));
@@ -42,6 +45,7 @@ HuffmanStatus readWholeFile(const std::string& path, std::vector<uint8_t>& data)
     in.seekg(0, std::ios::end);
     std::streamoff size = in.tellg();
     if (size < 0) return HuffmanStatus::FILE_READ_FAILED;
+    if (static_cast<uint64_t>(size) > MAX_INPUT_BYTES) return HuffmanStatus::TOO_LARGE;
     in.seekg(0, std::ios::beg);
     data.resize(static_cast<size_t>(size));
     if (size > 0) 
@@ -102,6 +106,7 @@ const char* huffmanStatusToString(HuffmanStatus status)
         case HuffmanStatus::SIZE_MISMATCH:     return "Size mismatch between header and data";
         case HuffmanStatus::CORRUPT_DATA:      return "Corrupt data";
         case HuffmanStatus::NOT_COMPRESSIBLE:  return "File can't be compressed further down";
+        case HuffmanStatus::TOO_LARGE:         return "File is larger than the 1 GB limit";
     }
     return "Unknown error";
 }
@@ -180,7 +185,8 @@ std::string HuffmanEncoder::encodeStringToBits(const std::string& text)
 HuffmanStatus HuffmanEncoder::compressBuffer(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
     out.clear();
     if (!data && len > 0) return HuffmanStatus::INVALID_INPUT;
-    if (len > static_cast<size_t>(INT_MAX)) return HuffmanStatus::INVALID_INPUT;  
+    if (len > static_cast<size_t>(INT_MAX)) return HuffmanStatus::INVALID_INPUT;
+    if (static_cast<uint64_t>(len) > MAX_INPUT_BYTES) return HuffmanStatus::TOO_LARGE;
 
     std::map<unsigned char, int> freqMap;
     for (size_t i = 0; i < len; ++i) freqMap[data[i]]++;

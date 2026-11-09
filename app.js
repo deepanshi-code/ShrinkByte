@@ -543,6 +543,8 @@ async function startExecutionPipeline() {
   ctaContainer.classList.add('hidden');
   resultsSection.classList.add('hidden');
   progressSection.classList.remove('hidden');
+  uploadProgressBlock.classList.remove('hidden');
+  processProgressBlock.classList.remove('hidden');
 
   resetMilestones();
   clearArchitectureHighlights();
@@ -845,6 +847,11 @@ function restoredName(name) {
 function showResultsCard(isCompress) {
   const { originalSize, processedSize } = appState.stats;
   resultsSection.classList.remove('hidden');
+  // Collapse the now-finished progress bars so the page doesn't show both "in
+  // progress" and "done" at once; the execution console (also inside
+  // progressSection) stays visible since its log is still useful to read.
+  uploadProgressBlock.classList.add('hidden');
+  processProgressBlock.classList.add('hidden');
   metricRatioValue.classList.remove('highlight-emerald', 'highlight-warning');
 
   if (isCompress) {

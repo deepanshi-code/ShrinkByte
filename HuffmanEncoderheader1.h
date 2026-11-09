@@ -35,7 +35,8 @@ enum class HuffmanStatus
     TRUNCATED_DATA,
     SIZE_MISMATCH,
     CORRUPT_DATA,
-    NOT_COMPRESSIBLE
+    NOT_COMPRESSIBLE,
+    TOO_LARGE
 };
 
 const char* huffmanStatusToString(HuffmanStatus status);

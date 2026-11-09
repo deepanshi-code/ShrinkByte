@@ -134,6 +134,34 @@ test('an archive claiming more than 1 GB of output is refused before decoding', 
   await assert.rejects(SB01.decompress(archive), { status: SB01.Status.TOO_LARGE });
 });
 
+test('compressing an input over the 1 GB limit is refused without reading it', async () => {
+  // A Proxy that reports a huge .size without actually holding that much data, so the
+  // limit check (which must happen before any real reading) can be tested cheaply.
+  function fakeSizedBlob(reportedSize) {
+    const real = new Blob(['x']);
+    return new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'size') return reportedSize;
+        const v = target[prop];
+        return typeof v === 'function' ? v.bind(target) : v;
+      }
+    });
+  }
+  const TEN_GB = 10 * 1024 * 1024 * 1024;
+  const ONE_GB_PLUS_1 = SB01.MAX_INPUT_BYTES + 1;
+  await assert.rejects(SB01.compress(fakeSizedBlob(TEN_GB)), { status: SB01.Status.TOO_LARGE });
+  await assert.rejects(SB01.compress(fakeSizedBlob(ONE_GB_PLUS_1)), { status: SB01.Status.TOO_LARGE });
+});
+
+test('two distinct bytes, evenly split, each get a 1-bit code', async () => {
+  const data = Buffer.alloc(2000);
+  for (let i = 0; i < data.length; i++) data[i] = i % 2 === 0 ? 0x41 : 0x42; // 'A' / 'B'
+  const { packed, restored } = await roundTrip(data);
+  assert.deepStrictEqual(restored, data);
+  // header(14) + 2 table entries(5 each) + ceil(2000/8) payload = 274 bytes
+  assert.strictEqual(packed.outputSize, 274);
+});
+
 test('cancelling stops the job with a CANCELLED status', async () => {
   const data = new Blob([Buffer.alloc(SB01.CHUNK_SIZE * 2, 1)]);
   let calls = 0;
