@@ -569,6 +569,7 @@ async function startExecutionPipeline() {
     appState.stats.originalSize = file.size;
     appState.stats.processedSize = result.outputSize;
     appState.stats.verified = Boolean(result.verified);
+    appState.stats.engine = result.engine || 'js';
     appState.processedBlob = result.blob;
     appState.outputFileName = isCompress ? compressedName(file.name) : restoredName(file.name);
 
@@ -649,7 +650,8 @@ function runBackendCodec(run, action, file, onProgress) {
         outputSize: xhr.response.size,
         archiveSize: file.size,
         distinctBytes: Number(xhr.getResponseHeader('X-Distinct-Bytes') || 0),
-        verified: xhr.getResponseHeader('X-Verified') === 'true'
+        verified: xhr.getResponseHeader('X-Verified') === 'true',
+        engine: 'cpp'
       });
     };
     xhr.send(file);
@@ -667,7 +669,8 @@ function runBrowserCodec(run, action, file, onProgress) {
 
   if (!worker) {
     const options = { onProgress, isCancelled: () => run.cancelled };
-    return action === 'compress' ? SB01.compress(file, options) : SB01.decompress(file, options);
+    const resultPromise = action === 'compress' ? SB01.compress(file, options) : SB01.decompress(file, options);
+    return resultPromise.then(result => ({ ...result, engine: 'js' }));
   }
 
   return new Promise((resolve, reject) => {
@@ -684,7 +687,7 @@ function runBrowserCodec(run, action, file, onProgress) {
       }
       worker.terminate();
       if (msg.type === 'done') {
-        resolve(msg.result);
+        resolve({ ...msg.result, engine: 'js' });
       } else {
         const error = new Error(msg.message);
         error.status = msg.status;
@@ -892,6 +895,11 @@ function showResultsCard(isCompress) {
     metricRatioValue.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
     metricRatioSub.textContent = 'Full file recovered';
   }
+
+  const engineLabel = appState.stats.engine === 'cpp'
+    ? 'Processed by the real compiled C++ engine.'
+    : 'Processed by the in-browser JavaScript engine.';
+  resultsSubtitle.textContent += ' ' + engineLabel;
 
   metricOriginalSize.textContent = formatBytes(originalSize);
   metricProcessedSize.textContent = formatBytes(processedSize);

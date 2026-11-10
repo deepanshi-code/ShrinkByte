@@ -19,6 +19,12 @@ If `g++` is available on your machine, the server automatically compiles the C++
 
 ---
 
+## 🌿 Branches
+
+**`main` is the actively maintained, canonical branch** — it's what's deployed and what both the CLI and web app are built from. The individual branches (`Darsh`, `Avika`, `Aayushe`, `deepanshi`) preserve each member's original, independent development history and are not kept in sync with `main` after their work was merged in.
+
+---
+
 ## 📌 Motivation
 
 With the continuous growth of digital data, storing and transferring files efficiently has become an important requirement. Larger files consume more storage space and may require more time and bandwidth during transfer.
